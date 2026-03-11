@@ -260,7 +260,7 @@
 
         // Parse lyrics
         const words = (song.lyrics || []).filter(w =>
-            w.word && w.word.length < 20 && /^[a-zA-Z',.\-!? ]+$/.test(w.word)
+            w.word && w.word.length < 20
         );
         lines = [];
         for (let i = 0; i < words.length; i += WORDS_PER_LINE) {
