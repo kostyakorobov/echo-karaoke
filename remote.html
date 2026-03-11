@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Эхо — Пульт караоке</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0a0a0a;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #1a1a1a;
+            flex-shrink: 0;
+        }
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .room-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #1a1a1a;
+            border: 1px solid #262626;
+            color: #a3a3a3;
+        }
+
+        /* Search */
+        .search-wrap {
+            padding: 16px 20px;
+            flex-shrink: 0;
+        }
+        .search-input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid #262626;
+            background: #141414;
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-input:focus {
+            border-color: #a855f7;
+        }
+        .search-input::placeholder {
+            color: #525252;
+        }
+
+        /* Content area */
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 20px 20px;
+        }
+
+        /* Section headers */
+        .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #525252;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 20px 0 10px;
+        }
+
+        /* Song card */
+        .song-card {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 12px;
+            margin-bottom: 8px;
+            gap: 12px;
+            transition: border-color 0.2s;
+            cursor: pointer;
+        }
+        .song-card:active {
+            border-color: #a855f7;
+            background: #1a1a1a;
+        }
+        .song-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 18px;
+        }
+        .song-details {
+            flex: 1;
+            min-width: 0;
+        }
+        .song-name {
+            font-weight: 600;
+            font-size: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .song-artist-name {
+            font-size: 13px;
+            color: #737373;
+            margin-top: 2px;
+        }
+        .song-add {
+            padding: 8px 16px;
+            border-radius: 20px;
+            border: none;
+            background: #a855f7;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        .song-add:hover { background: #9333ea; }
+        .song-add:disabled {
+            background: #262626;
+            color: #525252;
+            cursor: default;
+        }
+
+        /* Queue item */
+        .queue-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 12px;
+            margin-bottom: 8px;
+            gap: 12px;
+        }
+        .queue-pos {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: #262626;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: #a3a3a3;
+            flex-shrink: 0;
+        }
+        .queue-pos.playing {
+            background: #a855f7;
+            color: #fff;
+            animation: pulse-bg 2s infinite;
+        }
+        @keyframes pulse-bg {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .queue-details { flex: 1; min-width: 0; }
+        .queue-song {
+            font-weight: 600;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .queue-singer {
+            font-size: 12px;
+            color: #737373;
+            margin-top: 2px;
+        }
+        .queue-status {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 8px;
+            flex-shrink: 0;
+        }
+        .queue-status.playing {
+            background: rgba(168, 85, 247, 0.15);
+            color: #a855f7;
+        }
+        .queue-status.waiting {
+            background: rgba(163, 163, 163, 0.1);
+            color: #737373;
+        }
+
+        /* Name input modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal-overlay.visible { display: flex; }
+        .modal {
+            background: #1a1a1a;
+            border: 1px solid #262626;
+            border-radius: 16px;
+            padding: 24px;
+            width: 100%;
+            max-width: 340px;
+        }
+        .modal h3 {
+            font-size: 18px;
+            margin-bottom: 16px;
+        }
+        .modal input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 10px;
+            border: 1px solid #262626;
+            background: #0a0a0a;
+            color: #fff;
+            font-size: 16px;
+            outline: none;
+            margin-bottom: 16px;
+        }
+        .modal input:focus { border-color: #a855f7; }
+        .modal-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        .modal-btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .modal-btn.cancel {
+            background: #262626;
+            color: #a3a3a3;
+        }
+        .modal-btn.confirm {
+            background: #a855f7;
+            color: #fff;
+        }
+
+        /* Empty state */
+        .empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #525252;
+        }
+        .empty-icon { font-size: 48px; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">ЭХО.КАРАОКЕ</div>
+        <div class="room-badge" id="roomBadge">hall_1</div>
+    </div>
+
+    <div class="search-wrap">
+        <input class="search-input" id="search" type="text"
+               placeholder="Поиск песни или артиста..." autocomplete="off">
+    </div>
+
+    <div class="content">
+        <!-- Search results -->
+        <div id="searchResults"></div>
+
+        <!-- Catalog -->
+        <div class="section-title">Каталог</div>
+        <div id="catalog"></div>
+
+        <!-- Queue -->
+        <div class="section-title">Очередь</div>
+        <div id="queue">
+            <div class="empty">
+                <div class="empty-icon">🎤</div>
+                Очередь пуста — найди песню!
+            </div>
+        </div>
+    </div>
+
+    <!-- Name modal -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <h3>Как тебя зовут?</h3>
+            <input id="nameInput" type="text" placeholder="Имя" autocomplete="off">
+            <div class="modal-buttons">
+                <button class="modal-btn cancel" id="modalCancel">Отмена</button>
+                <button class="modal-btn confirm" id="modalConfirm">В очередь!</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const SUPABASE_URL = 'https://uefvicwsbkjsbvfdhebj.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVlZnZpY3dzYmtqc2J2ZmRoZWJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxNDg0ODksImV4cCI6MjA3NTcyNDQ4OX0.53_b0KI7DUwI4SzFXNoIDbIgm5N1qwhnppx6WmP-FX0';
+    const ROOM_ID = new URLSearchParams(window.location.search).get('room') || 'hall_1';
+
+    const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+    let pendingSongId = null;
+    let userName = localStorage.getItem('echo_name') || '';
+
+    document.getElementById('roomBadge').textContent = ROOM_ID;
+
+    // --- Search ---
+    let searchTimeout;
+    document.getElementById('search').addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        const q = e.target.value.trim();
+        if (q.length < 2) {
+            document.getElementById('searchResults').innerHTML = '';
+            return;
+        }
+        searchTimeout = setTimeout(() => searchSongs(q), 300);
+    });
+
+    async function searchSongs(query) {
+        const { data: songs } = await sb.from('karaoke_songs')
+            .select('id, title, artist')
+            .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+            .limit(10);
+
+        const container = document.getElementById('searchResults');
+        if (!songs || songs.length === 0) {
+            container.innerHTML = `
+                <div class="section-title">Результаты</div>
+                <div class="empty">Ничего не найдено</div>`;
+            return;
+        }
+
+        container.innerHTML = `<div class="section-title">Результаты</div>` +
+            songs.map(s => `
+                <div class="song-card" data-id="${s.id}">
+                    <div class="song-icon">🎵</div>
+                    <div class="song-details">
+                        <div class="song-name">${esc(s.title)}</div>
+                        <div class="song-artist-name">${esc(s.artist)}</div>
+                    </div>
+                    <button class="song-add" onclick="window._addToQueue('${s.id}')">
+                        Спеть
+                    </button>
+                </div>
+            `).join('');
+    }
+
+    // --- Add to queue ---
+    window._addToQueue = function(songId) {
+        pendingSongId = songId;
+        if (userName) {
+            addToQueue(songId, userName);
+        } else {
+            document.getElementById('modal').classList.add('visible');
+            document.getElementById('nameInput').focus();
+        }
+    };
+
+    document.getElementById('modalCancel').onclick = () => {
+        document.getElementById('modal').classList.remove('visible');
+    };
+    document.getElementById('modalConfirm').onclick = () => {
+        const name = document.getElementById('nameInput').value.trim();
+        if (!name) return;
+        userName = name;
+        localStorage.setItem('echo_name', name);
+        document.getElementById('modal').classList.remove('visible');
+        addToQueue(pendingSongId, name);
+    };
+    document.getElementById('nameInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('modalConfirm').click();
+    });
+
+    async function addToQueue(songId, name) {
+        // Get next position
+        const { data: last } = await sb.from('karaoke_queue')
+            .select('position')
+            .eq('room_id', ROOM_ID)
+            .order('position', { ascending: false })
+            .limit(1);
+
+        const pos = (last && last.length > 0) ? last[0].position + 1 : 1;
+
+        await sb.from('karaoke_queue').insert({
+            room_id: ROOM_ID,
+            song_id: songId,
+            user_name: name,
+            position: pos,
+            status: 'waiting'
+        });
+
+        // Clear search
+        document.getElementById('search').value = '';
+        document.getElementById('searchResults').innerHTML = '';
+
+        loadQueue();
+    }
+
+    // --- Queue display ---
+    async function loadQueue() {
+        const { data: items } = await sb.from('karaoke_queue')
+            .select('*, karaoke_songs(title, artist)')
+            .eq('room_id', ROOM_ID)
+            .in('status', ['playing', 'waiting'])
+            .order('position', { ascending: true });
+
+        const container = document.getElementById('queue');
+        if (!items || items.length === 0) {
+            container.innerHTML = `
+                <div class="empty">
+                    <div class="empty-icon">🎤</div>
+                    Очередь пуста — найди песню!
+                </div>`;
+            return;
+        }
+
+        container.innerHTML = items.map((item, i) => `
+            <div class="queue-item">
+                <div class="queue-pos ${item.status === 'playing' ? 'playing' : ''}">
+                    ${item.status === 'playing' ? '▶' : i + 1}
+                </div>
+                <div class="queue-details">
+                    <div class="queue-song">${esc(item.karaoke_songs?.title || '—')}</div>
+                    <div class="queue-singer">${esc(item.user_name || 'Аноним')}</div>
+                </div>
+                <div class="queue-status ${item.status}">
+                    ${item.status === 'playing' ? 'Сейчас' : 'Ожидание'}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // --- Realtime queue updates ---
+    sb.channel('queue_remote')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'karaoke_queue',
+            filter: `room_id=eq.${ROOM_ID}`
+        }, () => { loadQueue(); })
+        .subscribe();
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    // --- Catalog ---
+    async function loadCatalog() {
+        const { data: songs } = await sb.from('karaoke_songs')
+            .select('id, title, artist')
+            .order('artist', { ascending: true });
+
+        const container = document.getElementById('catalog');
+        if (!songs || songs.length === 0) {
+            container.innerHTML = '<div class="empty">Пока пусто</div>';
+            return;
+        }
+
+        container.innerHTML = songs.map(s => `
+            <div class="song-card">
+                <div class="song-icon">🎵</div>
+                <div class="song-details">
+                    <div class="song-name">${esc(s.title)}</div>
+                    <div class="song-artist-name">${esc(s.artist)}</div>
+                </div>
+                <button class="song-add" onclick="window._addToQueue('${s.id}')">Спеть</button>
+            </div>
+        `).join('');
+    }
+
+    // Init
+    loadCatalog();
+    loadQueue();
+    </script>
+</body>
+</html>
