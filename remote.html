@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Эхо — Пульт караоке</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -34,6 +35,11 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
         .room-badge {
             font-size: 12px;
             padding: 4px 10px;
@@ -41,6 +47,87 @@
             background: #1a1a1a;
             border: 1px solid #262626;
             color: #a3a3a3;
+        }
+        .user-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: rgba(168, 85, 247, 0.1);
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            color: #c084fc;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .user-badge:active {
+            background: rgba(168, 85, 247, 0.2);
+        }
+
+        /* Now playing */
+        .now-playing {
+            padding: 16px 20px;
+            border-bottom: 1px solid #1a1a1a;
+            display: none;
+            flex-shrink: 0;
+        }
+        .now-playing.visible { display: block; }
+        .now-playing-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: #a855f7;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .now-playing-dot {
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: #a855f7;
+            animation: pulse-dot 2s infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .now-playing-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .now-playing-icon {
+            width: 44px; height: 44px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+            animation: pulse-icon 2s ease-in-out infinite;
+        }
+        @keyframes pulse-icon {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .now-playing-text { flex: 1; min-width: 0; }
+        .now-playing-title {
+            font-weight: 600;
+            font-size: 15px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .now-playing-artist {
+            font-size: 13px;
+            color: #737373;
+            margin-top: 2px;
+        }
+        .now-playing-singer {
+            font-size: 12px;
+            color: #a855f7;
+            margin-top: 2px;
         }
 
         /* Search */
@@ -170,15 +257,6 @@
             color: #a3a3a3;
             flex-shrink: 0;
         }
-        .queue-pos.playing {
-            background: #a855f7;
-            color: #fff;
-            animation: pulse-bg 2s infinite;
-        }
-        @keyframes pulse-bg {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
         .queue-details { flex: 1; min-width: 0; }
         .queue-song {
             font-weight: 600;
@@ -198,13 +276,27 @@
             border-radius: 8px;
             flex-shrink: 0;
         }
-        .queue-status.playing {
-            background: rgba(168, 85, 247, 0.15);
-            color: #a855f7;
-        }
         .queue-status.waiting {
             background: rgba(163, 163, 163, 0.1);
             color: #737373;
+        }
+        .queue-remove {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: transparent;
+            color: #525252;
+            font-size: 18px;
+            cursor: pointer;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .queue-remove:active {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
         }
 
         /* Name input modal */
@@ -265,6 +357,30 @@
             color: #fff;
         }
 
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            padding: 12px 24px;
+            background: #1a1a1a;
+            border: 1px solid #262626;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #d4d4d4;
+            z-index: 200;
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
         /* Empty state */
         .empty {
             text-align: center;
@@ -277,7 +393,26 @@
 <body>
     <div class="header">
         <div class="logo">ЭХО.КАРАОКЕ</div>
-        <div class="room-badge" id="roomBadge">hall_1</div>
+        <div class="header-right">
+            <div class="room-badge" id="roomBadge">hall_1</div>
+            <div class="user-badge" id="userBadge" title="Нажми, чтобы сменить имя">Гость</div>
+        </div>
+    </div>
+
+    <!-- Now playing -->
+    <div class="now-playing" id="nowPlaying">
+        <div class="now-playing-label">
+            <div class="now-playing-dot"></div>
+            Сейчас играет
+        </div>
+        <div class="now-playing-info">
+            <div class="now-playing-icon">🎤</div>
+            <div class="now-playing-text">
+                <div class="now-playing-title" id="npTitle">—</div>
+                <div class="now-playing-artist" id="npArtist">—</div>
+                <div class="now-playing-singer" id="npSinger"></div>
+            </div>
+        </div>
     </div>
 
     <div class="search-wrap">
@@ -286,12 +421,14 @@
     </div>
 
     <div class="content">
-        <!-- Search results -->
+        <!-- Search results (replaces catalog when active) -->
         <div id="searchResults"></div>
 
-        <!-- Catalog -->
-        <div class="section-title">Каталог</div>
-        <div id="catalog"></div>
+        <!-- Catalog (hidden during search) -->
+        <div id="catalogSection">
+            <div class="section-title">Каталог</div>
+            <div id="catalog"></div>
+        </div>
 
         <!-- Queue -->
         <div class="section-title">Очередь</div>
@@ -315,6 +452,9 @@
         </div>
     </div>
 
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
     <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -324,19 +464,70 @@
 
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
     let pendingSongId = null;
-    let userName = localStorage.getItem('echo_name') || '';
+
+    // --- Telegram Mini App integration ---
+    const tg = window.Telegram?.WebApp;
+    const isTelegram = !!(tg && tg.initDataUnsafe?.user);
+
+    if (isTelegram) {
+        tg.ready();
+        tg.expand();
+    }
+
+    // Get user name: Telegram first, then localStorage, then 'Гость'
+    let userName = isTelegram
+        ? (tg.initDataUnsafe.user.first_name || 'Гость')
+        : (localStorage.getItem('echo_name') || '');
 
     document.getElementById('roomBadge').textContent = ROOM_ID;
+    updateUserBadge();
+
+    // In Telegram mode, hide the name badge tap (name comes from Telegram)
+    // --- User badge ---
+    function updateUserBadge() {
+        const badge = document.getElementById('userBadge');
+        badge.textContent = userName || 'Гость';
+        if (isTelegram) {
+            badge.style.cursor = 'default';
+            badge.style.pointerEvents = 'none';
+        }
+    }
+
+    // Tap user badge to change name (only outside Telegram)
+    document.getElementById('userBadge').onclick = () => {
+        if (isTelegram) return;
+        pendingSongId = null;
+        document.getElementById('nameInput').value = userName;
+        document.getElementById('modal').classList.add('visible');
+        document.getElementById('modalConfirm').textContent = userName ? 'Сохранить' : 'В очередь!';
+        document.getElementById('nameInput').focus();
+    };
+
+    // --- Toast ---
+    let toastTimer;
+    function showToast(message) {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 2500);
+    }
 
     // --- Search ---
     let searchTimeout;
-    document.getElementById('search').addEventListener('input', (e) => {
+    const searchInput = document.getElementById('search');
+    const catalogSection = document.getElementById('catalogSection');
+    const searchResults = document.getElementById('searchResults');
+
+    searchInput.addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
         const q = e.target.value.trim();
         if (q.length < 2) {
-            document.getElementById('searchResults').innerHTML = '';
+            searchResults.innerHTML = '';
+            catalogSection.style.display = '';
             return;
         }
+        catalogSection.style.display = 'none';
         searchTimeout = setTimeout(() => searchSongs(q), 300);
     });
 
@@ -346,35 +537,39 @@
             .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
             .limit(10);
 
-        const container = document.getElementById('searchResults');
         if (!songs || songs.length === 0) {
-            container.innerHTML = `
+            searchResults.innerHTML = `
                 <div class="section-title">Результаты</div>
                 <div class="empty">Ничего не найдено</div>`;
             return;
         }
 
-        container.innerHTML = `<div class="section-title">Результаты</div>` +
-            songs.map(s => `
-                <div class="song-card" data-id="${s.id}">
-                    <div class="song-icon">🎵</div>
-                    <div class="song-details">
-                        <div class="song-name">${esc(s.title)}</div>
-                        <div class="song-artist-name">${esc(s.artist)}</div>
-                    </div>
-                    <button class="song-add" onclick="window._addToQueue('${s.id}')">
-                        Спеть
-                    </button>
+        searchResults.innerHTML = `<div class="section-title">Результаты</div>` +
+            songs.map(s => songCardHTML(s)).join('');
+    }
+
+    function songCardHTML(s) {
+        return `
+            <div class="song-card" data-id="${s.id}">
+                <div class="song-icon">🎵</div>
+                <div class="song-details">
+                    <div class="song-name">${esc(s.title)}</div>
+                    <div class="song-artist-name">${esc(s.artist)}</div>
                 </div>
-            `).join('');
+                <button class="song-add" onclick="window._addToQueue('${s.id}', '${esc(s.title)}')">
+                    Спеть
+                </button>
+            </div>`;
     }
 
     // --- Add to queue ---
-    window._addToQueue = function(songId) {
+    window._addToQueue = function(songId, songTitle) {
         pendingSongId = songId;
-        if (userName) {
-            addToQueue(songId, userName);
+        window._pendingSongTitle = songTitle;
+        if (userName || isTelegram) {
+            addToQueue(songId, userName || 'Гость');
         } else {
+            document.getElementById('modalConfirm').textContent = 'В очередь!';
             document.getElementById('modal').classList.add('visible');
             document.getElementById('nameInput').focus();
         }
@@ -388,15 +583,17 @@
         if (!name) return;
         userName = name;
         localStorage.setItem('echo_name', name);
+        updateUserBadge();
         document.getElementById('modal').classList.remove('visible');
-        addToQueue(pendingSongId, name);
+        if (pendingSongId) {
+            addToQueue(pendingSongId, name);
+        }
     };
     document.getElementById('nameInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') document.getElementById('modalConfirm').click();
     });
 
     async function addToQueue(songId, name) {
-        // Get next position
         const { data: last } = await sb.from('karaoke_queue')
             .select('position')
             .eq('room_id', ROOM_ID)
@@ -414,18 +611,50 @@
         });
 
         // Clear search
-        document.getElementById('search').value = '';
-        document.getElementById('searchResults').innerHTML = '';
+        searchInput.value = '';
+        searchResults.innerHTML = '';
+        catalogSection.style.display = '';
 
+        showToast(`${window._pendingSongTitle || 'Песня'} добавлена в очередь`);
         loadQueue();
+    }
+
+    // --- Remove from queue ---
+    window._removeFromQueue = async function(queueId) {
+        await sb.from('karaoke_queue').delete().eq('id', queueId);
+        showToast('Убрано из очереди');
+        loadQueue();
+    };
+
+    // --- Now playing ---
+    async function loadNowPlaying() {
+        const { data: playing } = await sb.from('karaoke_queue')
+            .select('*, karaoke_songs(title, artist)')
+            .eq('room_id', ROOM_ID)
+            .eq('status', 'playing')
+            .limit(1);
+
+        const np = document.getElementById('nowPlaying');
+        if (playing && playing.length > 0) {
+            const item = playing[0];
+            document.getElementById('npTitle').textContent = item.karaoke_songs?.title || '—';
+            document.getElementById('npArtist').textContent = item.karaoke_songs?.artist || '—';
+            document.getElementById('npSinger').textContent = item.user_name
+                ? `Поёт: ${item.user_name}` : '';
+            np.classList.add('visible');
+        } else {
+            np.classList.remove('visible');
+        }
     }
 
     // --- Queue display ---
     async function loadQueue() {
+        loadNowPlaying();
+
         const { data: items } = await sb.from('karaoke_queue')
             .select('*, karaoke_songs(title, artist)')
             .eq('room_id', ROOM_ID)
-            .in('status', ['playing', 'waiting'])
+            .eq('status', 'waiting')
             .order('position', { ascending: true });
 
         const container = document.getElementById('queue');
@@ -440,16 +669,13 @@
 
         container.innerHTML = items.map((item, i) => `
             <div class="queue-item">
-                <div class="queue-pos ${item.status === 'playing' ? 'playing' : ''}">
-                    ${item.status === 'playing' ? '▶' : i + 1}
-                </div>
+                <div class="queue-pos">${i + 1}</div>
                 <div class="queue-details">
                     <div class="queue-song">${esc(item.karaoke_songs?.title || '—')}</div>
                     <div class="queue-singer">${esc(item.user_name || 'Аноним')}</div>
                 </div>
-                <div class="queue-status ${item.status}">
-                    ${item.status === 'playing' ? 'Сейчас' : 'Ожидание'}
-                </div>
+                <div class="queue-status waiting">Ожидание</div>
+                <button class="queue-remove" onclick="window._removeFromQueue('${item.id}')" title="Убрать">✕</button>
             </div>
         `).join('');
     }
@@ -482,16 +708,7 @@
             return;
         }
 
-        container.innerHTML = songs.map(s => `
-            <div class="song-card">
-                <div class="song-icon">🎵</div>
-                <div class="song-details">
-                    <div class="song-name">${esc(s.title)}</div>
-                    <div class="song-artist-name">${esc(s.artist)}</div>
-                </div>
-                <button class="song-add" onclick="window._addToQueue('${s.id}')">Спеть</button>
-            </div>
-        `).join('');
+        container.innerHTML = songs.map(s => songCardHTML(s)).join('');
     }
 
     // Init

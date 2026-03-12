@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Эхо Караоке — Админка</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0a0a0a;
+            color: #fff;
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            padding: 20px 32px;
+            border-bottom: 1px solid #1a1a1a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #22c55e;
+            animation: pulse-dot 2s infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .status-text {
+            font-size: 13px;
+            color: #737373;
+        }
+
+        /* Layout */
+        .layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: calc(100vh - 69px);
+        }
+
+        /* Left panel: Rooms */
+        .rooms-panel {
+            border-right: 1px solid #1a1a1a;
+            padding: 24px;
+            overflow-y: auto;
+        }
+        .panel-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #525252;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+        }
+
+        /* Room card */
+        .room-card {
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: border-color 0.2s;
+        }
+        .room-card.active {
+            border-color: #a855f7;
+        }
+        .room-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .room-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .room-status {
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: 10px;
+        }
+        .room-status.playing {
+            background: rgba(168, 85, 247, 0.15);
+            color: #a855f7;
+        }
+        .room-status.idle {
+            background: rgba(163, 163, 163, 0.1);
+            color: #525252;
+        }
+
+        /* Now playing in room */
+        .room-now {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: #0a0a0a;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .room-now-icon {
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .room-now-text { flex: 1; min-width: 0; }
+        .room-now-title {
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .room-now-artist {
+            font-size: 12px;
+            color: #737373;
+        }
+        .room-now-singer {
+            font-size: 11px;
+            color: #a855f7;
+        }
+        .room-now-empty {
+            font-size: 13px;
+            color: #525252;
+            padding: 10px 12px;
+            background: #0a0a0a;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        /* Room queue */
+        .room-queue-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+            border-bottom: 1px solid #1a1a1a;
+            font-size: 13px;
+        }
+        .room-queue-item:last-child { border-bottom: none; }
+        .room-queue-pos {
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            background: #262626;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            color: #737373;
+            flex-shrink: 0;
+        }
+        .room-queue-info { flex: 1; min-width: 0; }
+        .room-queue-song {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .room-queue-singer {
+            font-size: 11px;
+            color: #737373;
+        }
+        .room-queue-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        /* Small action buttons */
+        .btn-sm {
+            width: 28px; height: 28px;
+            border-radius: 6px;
+            border: none;
+            background: #262626;
+            color: #737373;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .btn-sm:hover {
+            background: #333;
+            color: #fff;
+        }
+        .btn-sm.danger:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+        }
+        .btn-sm.skip:hover {
+            background: rgba(168, 85, 247, 0.15);
+            color: #a855f7;
+        }
+
+        /* Right panel: Catalog */
+        .catalog-panel {
+            padding: 24px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Search */
+        .search-input {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid #262626;
+            background: #141414;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 16px;
+            transition: border-color 0.2s;
+        }
+        .search-input:focus { border-color: #a855f7; }
+        .search-input::placeholder { color: #525252; }
+
+        /* Stats bar */
+        .stats-bar {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .stat {
+            padding: 10px 16px;
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 10px;
+            flex: 1;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: #525252;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        /* Catalog list */
+        .catalog-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        .catalog-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 14px;
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 10px;
+            margin-bottom: 6px;
+            gap: 10px;
+        }
+        .catalog-icon {
+            width: 36px; height: 36px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .catalog-info { flex: 1; min-width: 0; }
+        .catalog-title {
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .catalog-artist {
+            font-size: 12px;
+            color: #737373;
+        }
+        .catalog-duration {
+            font-size: 12px;
+            color: #525252;
+            flex-shrink: 0;
+        }
+        .catalog-actions {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            padding: 12px 24px;
+            background: #1a1a1a;
+            border: 1px solid #262626;
+            border-radius: 12px;
+            font-size: 14px;
+            color: #d4d4d4;
+            z-index: 200;
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Empty */
+        .empty {
+            text-align: center;
+            padding: 30px;
+            color: #525252;
+            font-size: 13px;
+        }
+
+        /* Add song section */
+        .add-song {
+            margin-bottom: 16px;
+            padding: 14px;
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 10px;
+        }
+        .add-song-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #737373;
+            margin-bottom: 8px;
+        }
+        .add-song-row {
+            display: flex;
+            gap: 8px;
+        }
+        .add-song-row input {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #262626;
+            background: #0a0a0a;
+            color: #fff;
+            font-size: 13px;
+            outline: none;
+        }
+        .add-song-row input:focus { border-color: #a855f7; }
+        .add-song-row input::placeholder { color: #525252; }
+        .btn-add {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            background: #a855f7;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .btn-add:hover { background: #9333ea; }
+        .btn-add:disabled {
+            background: #262626;
+            color: #525252;
+            cursor: default;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="logo">ЭХО.КАРАОКЕ — АДМИНКА</div>
+        <div class="header-right">
+            <div class="status-dot"></div>
+            <span class="status-text">Realtime подключён</span>
+        </div>
+    </div>
+
+    <div class="layout">
+        <!-- Left: Rooms -->
+        <div class="rooms-panel">
+            <div class="panel-title">Комнаты</div>
+            <div id="rooms"></div>
+        </div>
+
+        <!-- Right: Catalog -->
+        <div class="catalog-panel">
+            <div class="panel-title">Каталог песен</div>
+
+            <div class="stats-bar">
+                <div class="stat">
+                    <div class="stat-value" id="totalSongs">0</div>
+                    <div class="stat-label">Треков</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="totalQueue">0</div>
+                    <div class="stat-label">В очередях</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="totalPlaying">0</div>
+                    <div class="stat-label">Играет сейчас</div>
+                </div>
+            </div>
+
+            <input class="search-input" id="catalogSearch" type="text"
+                   placeholder="Поиск по каталогу..." autocomplete="off">
+
+            <div class="catalog-list" id="catalogList"></div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+    const SUPABASE_URL = 'https://uefvicwsbkjsbvfdhebj.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVlZnZpY3dzYmtqc2J2ZmRoZWJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxNDg0ODksImV4cCI6MjA3NTcyNDQ4OX0.53_b0KI7DUwI4SzFXNoIDbIgm5N1qwhnppx6WmP-FX0';
+    const ROOMS = ['hall_1', 'hall_2', 'hall_3'];
+
+    const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+    let allSongs = [];
+
+    // --- Toast ---
+    let toastTimer;
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function fmt(s) {
+        if (!s) return '—';
+        return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+    }
+
+    // --- Rooms ---
+    async function loadRooms() {
+        const container = document.getElementById('rooms');
+        let totalQueue = 0;
+        let totalPlaying = 0;
+        let html = '';
+
+        for (const roomId of ROOMS) {
+            const { data: queue } = await sb.from('karaoke_queue')
+                .select('*, karaoke_songs(title, artist)')
+                .eq('room_id', roomId)
+                .in('status', ['playing', 'waiting'])
+                .order('position', { ascending: true });
+
+            const items = queue || [];
+            const playing = items.find(i => i.status === 'playing');
+            const waiting = items.filter(i => i.status === 'waiting');
+
+            if (playing) totalPlaying++;
+            totalQueue += waiting.length;
+
+            const roomLabel = roomId.replace('hall_', 'Зал ');
+
+            html += `
+                <div class="room-card ${playing ? 'active' : ''}">
+                    <div class="room-header">
+                        <div class="room-name">${esc(roomLabel)}</div>
+                        <div class="room-status ${playing ? 'playing' : 'idle'}">
+                            ${playing ? 'Играет' : 'Свободен'}
+                        </div>
+                    </div>
+                    ${playing ? `
+                        <div class="room-now">
+                            <div class="room-now-icon">🎤</div>
+                            <div class="room-now-text">
+                                <div class="room-now-title">${esc(playing.karaoke_songs?.title || '—')}</div>
+                                <div class="room-now-artist">${esc(playing.karaoke_songs?.artist || '—')}</div>
+                                ${playing.user_name ? `<div class="room-now-singer">Поёт: ${esc(playing.user_name)}</div>` : ''}
+                            </div>
+                            <button class="btn-sm skip" onclick="window._skip('${roomId}')" title="Пропустить">⏭</button>
+                        </div>
+                    ` : `
+                        <div class="room-now-empty">Ничего не играет</div>
+                    `}
+                    ${waiting.length > 0 ? waiting.map((item, i) => `
+                        <div class="room-queue-item">
+                            <div class="room-queue-pos">${i + 1}</div>
+                            <div class="room-queue-info">
+                                <div class="room-queue-song">${esc(item.karaoke_songs?.title || '—')}</div>
+                                <div class="room-queue-singer">${esc(item.user_name || 'Аноним')}</div>
+                            </div>
+                            <div class="room-queue-actions">
+                                ${i > 0 ? `<button class="btn-sm" onclick="window._moveUp('${item.id}', ${item.position})" title="Вверх">↑</button>` : ''}
+                                <button class="btn-sm danger" onclick="window._removeQueue('${item.id}')" title="Удалить">✕</button>
+                            </div>
+                        </div>
+                    `).join('') : ''}
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+        document.getElementById('totalQueue').textContent = totalQueue;
+        document.getElementById('totalPlaying').textContent = totalPlaying;
+    }
+
+    // --- Queue actions ---
+    window._skip = async function(roomId) {
+        const { data: playing } = await sb.from('karaoke_queue')
+            .select('id')
+            .eq('room_id', roomId)
+            .eq('status', 'playing')
+            .limit(1);
+        if (playing && playing.length > 0) {
+            await sb.from('karaoke_queue')
+                .update({ status: 'done' })
+                .eq('id', playing[0].id);
+            showToast('Трек пропущен');
+            loadRooms();
+        }
+    };
+
+    window._removeQueue = async function(queueId) {
+        await sb.from('karaoke_queue').delete().eq('id', queueId);
+        showToast('Убрано из очереди');
+        loadRooms();
+    };
+
+    window._moveUp = async function(itemId, currentPos) {
+        // Swap with previous item
+        const { data: prev } = await sb.from('karaoke_queue')
+            .select('id, position')
+            .lt('position', currentPos)
+            .eq('status', 'waiting')
+            .order('position', { ascending: false })
+            .limit(1);
+
+        if (prev && prev.length > 0) {
+            await sb.from('karaoke_queue')
+                .update({ position: prev[0].position })
+                .eq('id', itemId);
+            await sb.from('karaoke_queue')
+                .update({ position: currentPos })
+                .eq('id', prev[0].id);
+            loadRooms();
+        }
+    };
+
+    // --- Catalog ---
+    async function loadCatalog(filter = '') {
+        let query = sb.from('karaoke_songs')
+            .select('id, title, artist, duration_sec')
+            .order('artist', { ascending: true });
+
+        if (filter) {
+            query = query.or(`title.ilike.%${filter}%,artist.ilike.%${filter}%`);
+        }
+
+        const { data: songs } = await query;
+        allSongs = songs || [];
+
+        document.getElementById('totalSongs').textContent = allSongs.length;
+
+        const container = document.getElementById('catalogList');
+        if (allSongs.length === 0) {
+            container.innerHTML = '<div class="empty">Каталог пуст</div>';
+            return;
+        }
+
+        container.innerHTML = allSongs.map(s => `
+            <div class="catalog-item">
+                <div class="catalog-icon">🎵</div>
+                <div class="catalog-info">
+                    <div class="catalog-title">${esc(s.title)}</div>
+                    <div class="catalog-artist">${esc(s.artist)}</div>
+                </div>
+                <div class="catalog-duration">${fmt(s.duration_sec)}</div>
+                <div class="catalog-actions">
+                    <button class="btn-sm danger" onclick="window._deleteSong('${s.id}', '${esc(s.title)}')" title="Удалить">✕</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    window._deleteSong = async function(songId, title) {
+        if (!confirm(`Удалить "${title}" из каталога?`)) return;
+
+        // Remove from all queues first
+        await sb.from('karaoke_queue').delete().eq('song_id', songId);
+        await sb.from('karaoke_songs').delete().eq('id', songId);
+
+        showToast(`${title} удалён`);
+        loadCatalog();
+        loadRooms();
+    };
+
+    // --- Search ---
+    let searchTimer;
+    document.getElementById('catalogSearch').addEventListener('input', (e) => {
+        clearTimeout(searchTimer);
+        const q = e.target.value.trim();
+        searchTimer = setTimeout(() => loadCatalog(q), 300);
+    });
+
+    // --- Realtime ---
+    sb.channel('admin_queue')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'karaoke_queue'
+        }, () => { loadRooms(); })
+        .subscribe();
+
+    sb.channel('admin_songs')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'karaoke_songs'
+        }, () => { loadCatalog(); })
+        .subscribe();
+
+    // --- Init ---
+    loadRooms();
+    loadCatalog();
+    </script>
+</body>
+</html>
