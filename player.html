@@ -333,6 +333,66 @@
             font-style: italic;
         }
 
+        /* Interlude / intro overlay */
+        .interlude {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            z-index: 15;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+        .interlude.visible { opacity: 1; }
+        .interlude-label {
+            font-size: 16px;
+            color: #525252;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+        }
+        .interlude-ring {
+            width: 140px; height: 140px;
+            border-radius: 50%;
+            border: 3px solid #262626;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .interlude-ring svg {
+            position: absolute;
+            inset: -3px;
+            width: calc(100% + 6px);
+            height: calc(100% + 6px);
+            transform: rotate(-90deg);
+        }
+        .interlude-ring circle.progress-ring {
+            fill: none;
+            stroke: url(#interludeGrad);
+            stroke-width: 3;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.3s ease;
+        }
+        .interlude-timer {
+            font-size: 36px;
+            font-weight: 700;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+        }
+        .interlude-countdown {
+            font-size: 80px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1;
+            margin-top: 24px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .interlude-countdown.visible { opacity: 1; }
+
         /* Toast notification */
         .player-toast {
             position: fixed;
@@ -400,6 +460,25 @@
         </div>
         <div class="line active" id="line1"></div>
         <div class="singer" id="singer"></div>
+
+        <!-- Interlude overlay (intro + between verses) -->
+        <div class="interlude" id="interlude">
+            <div class="interlude-label" id="interludeLabel">Вступление</div>
+            <div class="interlude-ring">
+                <svg viewBox="0 0 146 146">
+                    <defs>
+                        <linearGradient id="interludeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="#a855f7"/>
+                            <stop offset="100%" stop-color="#ec4899"/>
+                        </linearGradient>
+                    </defs>
+                    <circle class="progress-ring" id="interludeRing" cx="73" cy="73" r="70"
+                            stroke-dasharray="440" stroke-dashoffset="440"/>
+                </svg>
+                <div class="interlude-timer" id="interludeTimer"></div>
+            </div>
+            <div class="interlude-countdown" id="interludeCountdown"></div>
+        </div>
 
         <!-- Congrats overlay -->
         <div class="overlay-screen" id="congratsScreen">
@@ -528,6 +607,7 @@
         const words = (song.lyrics || []).filter(w =>
             w.word && w.word.length < 20
         );
+        allWords = words;
         lines = [];
         for (let i = 0; i < words.length; i += WORDS_PER_LINE) {
             lines.push(words.slice(i, i + WORDS_PER_LINE));
@@ -787,6 +867,7 @@
         document.getElementById('queueList').innerHTML = '';
         currentSong = null;
         lines = [];
+        allWords = [];
     }
 
     audio.addEventListener('ended', async () => {
@@ -870,6 +951,89 @@
         return 0;
     }
 
+    // --- Interlude detection ---
+    const INTERLUDE_THRESHOLD = 6; // seconds — show interlude if gap > this
+    let interludeVisible = false;
+    let allWords = []; // flat word list for gap detection
+
+    function getNextWordStart(t) {
+        for (const w of allWords) {
+            if (w.start > t + 0.5) return w.start;
+        }
+        return null;
+    }
+
+    function updateInterlude(t) {
+        if (allWords.length === 0 || audio.paused) {
+            if (interludeVisible) hideInterlude();
+            return;
+        }
+
+        const nextStart = getNextWordStart(t);
+        if (nextStart === null) {
+            if (interludeVisible) hideInterlude();
+            return;
+        }
+
+        const gap = nextStart - t;
+        const isIntro = allWords.length > 0 && t < allWords[0].start - 1;
+
+        if (gap > INTERLUDE_THRESHOLD) {
+            // Show interlude
+            const el = document.getElementById('interlude');
+            const label = document.getElementById('interludeLabel');
+            const timer = document.getElementById('interludeTimer');
+            const ring = document.getElementById('interludeRing');
+            const countdown = document.getElementById('interludeCountdown');
+
+            label.textContent = isIntro ? 'Вступление' : 'Проигрыш';
+
+            const totalGap = isIntro ? allWords[0].start : gap + (nextStart - t - gap) + gap;
+            // Calculate progress: how far through the gap we are
+            // Find when this gap started (previous word end or 0)
+            let gapStart = 0;
+            if (!isIntro) {
+                for (let i = allWords.length - 1; i >= 0; i--) {
+                    if (allWords[i].end <= t) {
+                        gapStart = allWords[i].end;
+                        break;
+                    }
+                }
+            }
+            const gapTotal = nextStart - gapStart;
+            const elapsed = t - gapStart;
+            const progress = Math.min(1, elapsed / gapTotal);
+
+            // Ring progress (440 = circumference)
+            ring.style.strokeDashoffset = (440 * (1 - progress)).toFixed(0);
+
+            // Timer: seconds left
+            const secsLeft = Math.ceil(gap);
+            timer.textContent = secsLeft;
+
+            // Countdown 3-2-1 in last 3 seconds
+            if (gap <= 3.5 && gap > 0.5) {
+                countdown.textContent = Math.ceil(gap - 0.5);
+                countdown.classList.add('visible');
+            } else {
+                countdown.classList.remove('visible');
+            }
+
+            if (!interludeVisible) {
+                el.classList.add('visible');
+                interludeVisible = true;
+            }
+        } else if (interludeVisible) {
+            hideInterlude();
+        }
+    }
+
+    function hideInterlude() {
+        document.getElementById('interlude').classList.remove('visible');
+        document.getElementById('interludeCountdown').classList.remove('visible');
+        interludeVisible = false;
+    }
+
     function tick() {
         const t = audio.currentTime;
         if (audio.duration) {
@@ -881,6 +1045,7 @@
             const idx = findCurrentLineIdx(t);
             renderLine(document.getElementById('line1'), lines[idx] || null, t);
         }
+        updateInterlude(t);
         requestAnimationFrame(tick);
     }
 
