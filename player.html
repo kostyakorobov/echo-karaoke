@@ -443,7 +443,13 @@
             }
         })
         .on('postgres_changes', {
-            event: '*',
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'karaoke_queue',
+            filter: `room_id=eq.${ROOM_ID}`
+        }, () => { updateUpNext(); })
+        .on('postgres_changes', {
+            event: 'DELETE',
             schema: 'public',
             table: 'karaoke_queue',
             filter: `room_id=eq.${ROOM_ID}`
@@ -674,12 +680,15 @@
         requestAnimationFrame(renderFx);
     }
 
-    // Start FX when audio plays
-    audio.addEventListener('play', () => {
+    // Init AudioContext on first user gesture (required by browsers)
+    function initFxOnGesture() {
+        if (audioCtx) return;
         initAudioAnalyser();
         connectAudioSource();
         if (audioCtx.state === 'suspended') audioCtx.resume();
-    });
+    }
+    document.addEventListener('click', initFxOnGesture, { once: false });
+    document.addEventListener('keydown', initFxOnGesture, { once: false });
 
     requestAnimationFrame(renderFx);
 
