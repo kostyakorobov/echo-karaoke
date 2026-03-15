@@ -382,15 +382,16 @@
             font-weight: 700;
             color: #fff;
             font-variant-numeric: tabular-nums;
+            transition: opacity 0.3s;
         }
         .interlude-countdown {
-            font-size: 80px;
+            position: absolute;
+            font-size: 100px;
             font-weight: 800;
             background: linear-gradient(135deg, #a855f7, #ec4899);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             line-height: 1;
-            margin-top: 24px;
             opacity: 0;
             transition: opacity 0.3s;
         }
@@ -478,8 +479,8 @@
                             stroke-dasharray="440" stroke-dashoffset="440"/>
                 </svg>
                 <div class="interlude-timer" id="interludeTimer"></div>
+                <div class="interlude-countdown" id="interludeCountdown"></div>
             </div>
-            <div class="interlude-countdown" id="interludeCountdown"></div>
         </div>
 
         <!-- Congrats overlay -->
@@ -1014,15 +1015,17 @@
         // Timer
         timer.textContent = Math.ceil(secsLeft);
 
-        // Big countdown in last 5 seconds — hide ring, show numbers
+        // Big countdown in last 5 seconds — replace ring with numbers
         const ringEl = document.querySelector('.interlude-ring');
         if (secsLeft <= 5.5 && secsLeft > 0.5) {
             countdown.textContent = Math.ceil(secsLeft - 0.5);
             countdown.classList.add('visible');
             ringEl.classList.add('fade-out');
+            timer.style.opacity = '0';
         } else {
             countdown.classList.remove('visible');
             ringEl.classList.remove('fade-out');
+            timer.style.opacity = '1';
         }
 
         // Hide lyrics during interlude, show only in last LYRICS_PREVIEW_SECS
