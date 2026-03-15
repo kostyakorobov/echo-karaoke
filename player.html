@@ -180,6 +180,66 @@
         }
         .idle p { color: #a3a3a3; font-size: 18px; margin-top: 12px; }
         .idle .waiting { color: #c084fc; font-size: 16px; margin-top: 24px; }
+
+        /* Up next bar */
+        .up-next {
+            position: absolute;
+            bottom: 20px;
+            left: 40px;
+            font-size: 13px;
+            color: #737373;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+        .up-next.visible { opacity: 1; }
+        .up-next-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #525252;
+            margin-bottom: 4px;
+        }
+        .up-next-song { color: #a3a3a3; font-weight: 600; }
+        .up-next-singer { color: #c084fc; }
+
+        /* Toast notification */
+        .player-toast {
+            position: fixed;
+            top: 80px;
+            right: 40px;
+            padding: 16px 24px;
+            background: #1a1a1a;
+            border: 1px solid #262626;
+            border-radius: 14px;
+            z-index: 50;
+            opacity: 0;
+            transform: translateX(40px);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+            max-width: 360px;
+        }
+        .player-toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .player-toast-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #a855f7;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        .player-toast-song {
+            font-size: 15px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .player-toast-detail {
+            font-size: 13px;
+            color: #a3a3a3;
+            margin-top: 2px;
+        }
     </style>
 </head>
 <body>
@@ -203,6 +263,17 @@
         </div>
         <div class="line active" id="line1"></div>
         <div class="singer" id="singer"></div>
+        <div class="up-next" id="upNext">
+            <div class="up-next-label">Далее</div>
+            <div><span class="up-next-song" id="upNextSong"></span> <span class="up-next-singer" id="upNextSinger"></span></div>
+        </div>
+    </div>
+
+    <!-- Toast for queue additions -->
+    <div class="player-toast" id="playerToast">
+        <div class="player-toast-label">Добавлено в очередь</div>
+        <div class="player-toast-song" id="toastSong"></div>
+        <div class="player-toast-detail" id="toastDetail"></div>
     </div>
 
     <div class="controls">
@@ -243,6 +314,40 @@
     const audio = document.getElementById('audio');
     let lines = [];
     let currentSong = null;
+    let toastTimer = null;
+
+    // --- Toast notification ---
+    function showPlayerToast(title, artist, userName) {
+        document.getElementById('toastSong').textContent = title;
+        document.getElementById('toastDetail').textContent =
+            (artist ? artist + ' — ' : '') + (userName ? `Поёт: ${userName}` : '');
+        const toast = document.getElementById('playerToast');
+        toast.classList.add('show');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
+    }
+
+    // --- Up next ---
+    async function updateUpNext() {
+        const { data: items } = await sb.from('karaoke_queue')
+            .select('*, karaoke_songs(title, artist)')
+            .eq('room_id', ROOM_ID)
+            .eq('status', 'waiting')
+            .order('position', { ascending: true })
+            .limit(1);
+
+        const el = document.getElementById('upNext');
+        if (items && items.length > 0) {
+            const item = items[0];
+            document.getElementById('upNextSong').textContent =
+                (item.karaoke_songs?.artist || '') + ' — ' + (item.karaoke_songs?.title || '');
+            document.getElementById('upNextSinger').textContent =
+                item.user_name ? `(${item.user_name})` : '';
+            el.classList.add('visible');
+        } else {
+            el.classList.remove('visible');
+        }
+    }
 
     document.getElementById('roomId').textContent = ROOM_ID;
 
@@ -271,6 +376,7 @@
         audio.play();
         document.getElementById('iPlay').style.display = 'none';
         document.getElementById('iPause').style.display = '';
+        updateUpNext();
     }
 
     // --- Load directly (no queue, demo mode) ---
@@ -299,19 +405,33 @@
         }
     }
 
-    // --- Realtime: listen for new queue items ---
+    // --- Realtime: listen for queue changes ---
     sb.channel('karaoke_queue_changes')
         .on('postgres_changes', {
             event: 'INSERT',
             schema: 'public',
             table: 'karaoke_queue',
             filter: `room_id=eq.${ROOM_ID}`
-        }, (payload) => {
+        }, async (payload) => {
+            const row = payload.new;
+            // Show toast with song info
+            const { data: song } = await sb.from('karaoke_songs')
+                .select('title, artist').eq('id', row.song_id).single();
+            if (song) {
+                showPlayerToast(song.title, song.artist, row.user_name);
+            }
+            updateUpNext();
             // If nothing is playing, pick it up
             if (audio.paused || audio.ended) {
                 checkQueue();
             }
         })
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'karaoke_queue',
+            filter: `room_id=eq.${ROOM_ID}`
+        }, () => { updateUpNext(); })
         .subscribe();
 
     // --- When track ends, play next ---
@@ -480,6 +600,7 @@
     // --- Init ---
     loadFirstSong();
     checkQueue();
+    updateUpNext();
     requestAnimationFrame(tick);
     </script>
 </body>
