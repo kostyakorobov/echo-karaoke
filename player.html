@@ -463,7 +463,6 @@
 
         <!-- Interlude overlay (intro + between verses) -->
         <div class="interlude" id="interlude">
-            <div class="interlude-label" id="interludeLabel">Вступление</div>
             <div class="interlude-ring">
                 <svg viewBox="0 0 146 146">
                     <defs>
@@ -952,13 +951,28 @@
     }
 
     // --- Interlude detection ---
-    const INTERLUDE_THRESHOLD = 6; // seconds — show interlude if gap > this
+    const INTERLUDE_THRESHOLD = 6; // show interlude if gap > this
+    const LYRICS_PREVIEW_SECS = 4; // show lyrics this many secs before vocals
     let interludeVisible = false;
-    let allWords = []; // flat word list for gap detection
+    let allWords = [];
 
-    function getNextWordStart(t) {
-        for (const w of allWords) {
-            if (w.start > t + 0.5) return w.start;
+    function findGap(t) {
+        // Find the gap we're currently in (if any)
+        // Returns { gapStart, nextWordStart, gapTotal } or null
+        if (allWords.length === 0) return null;
+
+        // Before first word
+        if (t < allWords[0].start) {
+            return { gapStart: 0, nextWordStart: allWords[0].start, gapTotal: allWords[0].start };
+        }
+
+        // Between words
+        for (let i = 0; i < allWords.length - 1; i++) {
+            if (t >= allWords[i].end && t < allWords[i + 1].start) {
+                const gs = allWords[i].end;
+                const ns = allWords[i + 1].start;
+                return { gapStart: gs, nextWordStart: ns, gapTotal: ns - gs };
+            }
         }
         return null;
     }
@@ -969,68 +983,59 @@
             return;
         }
 
-        const nextStart = getNextWordStart(t);
-        if (nextStart === null) {
+        const gap = findGap(t);
+        if (!gap || gap.gapTotal < INTERLUDE_THRESHOLD) {
             if (interludeVisible) hideInterlude();
             return;
         }
 
-        const gap = nextStart - t;
-        const isIntro = allWords.length > 0 && t < allWords[0].start - 1;
+        const secsLeft = gap.nextWordStart - t;
 
-        if (gap > INTERLUDE_THRESHOLD) {
-            // Show interlude
-            const el = document.getElementById('interlude');
-            const label = document.getElementById('interludeLabel');
-            const timer = document.getElementById('interludeTimer');
-            const ring = document.getElementById('interludeRing');
-            const countdown = document.getElementById('interludeCountdown');
+        // Hide interlude when vocals are about to start (< 0.5s)
+        if (secsLeft < 0.5) {
+            if (interludeVisible) hideInterlude();
+            return;
+        }
 
-            label.textContent = isIntro ? 'Вступление' : 'Проигрыш';
+        const el = document.getElementById('interlude');
+        const timer = document.getElementById('interludeTimer');
+        const ring = document.getElementById('interludeRing');
+        const countdown = document.getElementById('interludeCountdown');
+        const line1 = document.getElementById('line1');
 
-            const totalGap = isIntro ? allWords[0].start : gap + (nextStart - t - gap) + gap;
-            // Calculate progress: how far through the gap we are
-            // Find when this gap started (previous word end or 0)
-            let gapStart = 0;
-            if (!isIntro) {
-                for (let i = allWords.length - 1; i >= 0; i--) {
-                    if (allWords[i].end <= t) {
-                        gapStart = allWords[i].end;
-                        break;
-                    }
-                }
-            }
-            const gapTotal = nextStart - gapStart;
-            const elapsed = t - gapStart;
-            const progress = Math.min(1, elapsed / gapTotal);
+        // Progress ring
+        const elapsed = t - gap.gapStart;
+        const progress = Math.min(1, elapsed / gap.gapTotal);
+        ring.style.strokeDashoffset = (440 * (1 - progress)).toFixed(0);
 
-            // Ring progress (440 = circumference)
-            ring.style.strokeDashoffset = (440 * (1 - progress)).toFixed(0);
+        // Timer
+        timer.textContent = Math.ceil(secsLeft);
 
-            // Timer: seconds left
-            const secsLeft = Math.ceil(gap);
-            timer.textContent = secsLeft;
+        // Big 3-2-1 countdown in last 3.5 seconds
+        if (secsLeft <= 3.5 && secsLeft > 0.5) {
+            countdown.textContent = Math.ceil(secsLeft - 0.5);
+            countdown.classList.add('visible');
+        } else {
+            countdown.classList.remove('visible');
+        }
 
-            // Countdown 3-2-1 in last 3 seconds
-            if (gap <= 3.5 && gap > 0.5) {
-                countdown.textContent = Math.ceil(gap - 0.5);
-                countdown.classList.add('visible');
-            } else {
-                countdown.classList.remove('visible');
-            }
+        // Hide lyrics during interlude, show only in last LYRICS_PREVIEW_SECS
+        if (secsLeft > LYRICS_PREVIEW_SECS) {
+            line1.style.opacity = '0';
+        } else {
+            line1.style.opacity = '1';
+        }
 
-            if (!interludeVisible) {
-                el.classList.add('visible');
-                interludeVisible = true;
-            }
-        } else if (interludeVisible) {
-            hideInterlude();
+        if (!interludeVisible) {
+            el.classList.add('visible');
+            interludeVisible = true;
         }
     }
 
     function hideInterlude() {
         document.getElementById('interlude').classList.remove('visible');
         document.getElementById('interludeCountdown').classList.remove('visible');
+        document.getElementById('line1').style.opacity = '1';
         interludeVisible = false;
     }
 
