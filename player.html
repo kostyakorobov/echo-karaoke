@@ -874,7 +874,70 @@
         allWords = [];
     }
 
+    // --- Skip: direct transition without congrats ---
+    let skipping = false;
+
+    async function skipToNext() {
+        if (skipping) return;
+        skipping = true;
+
+        audio.pause();
+        document.getElementById('line1').innerHTML = '';
+        document.getElementById('singer').innerHTML = '';
+        hideInterlude();
+
+        // Mark current as done
+        const { data: playing } = await sb.from('karaoke_queue')
+            .select('id')
+            .eq('room_id', ROOM_ID)
+            .eq('status', 'playing')
+            .limit(1);
+        if (playing && playing.length > 0) {
+            await sb.from('karaoke_queue')
+                .update({ status: 'done' })
+                .eq('id', playing[0].id);
+        }
+
+        // Check for next
+        const { data: next } = await sb.from('karaoke_queue')
+            .select('*, karaoke_songs(title, artist)')
+            .eq('room_id', ROOM_ID)
+            .eq('status', 'waiting')
+            .order('position', { ascending: true })
+            .limit(1);
+
+        if (next && next.length > 0) {
+            const nextTitle = next[0].karaoke_songs?.title || '—';
+            const nextArtist = next[0].karaoke_songs?.artist || '';
+            const nextSinger = next[0].user_name || '';
+
+            await showCountdown(nextTitle, nextArtist, nextSinger, lastSingerName);
+
+            await sb.from('karaoke_queue')
+                .update({ status: 'playing' })
+                .eq('id', next[0].id);
+            await loadSong(next[0].song_id, next[0].user_name);
+        } else {
+            goToIdle();
+        }
+
+        updateQueueDisplay();
+        skipping = false;
+    }
+
+    // --- Restart: if > 3s into song → restart, otherwise previous track ---
+    async function restartOrPrevious() {
+        if (audio.currentTime > 3) {
+            audio.currentTime = 0;
+        } else {
+            // Try to find previous track and replay it
+            // For now, just restart current
+            audio.currentTime = 0;
+        }
+    }
+
     audio.addEventListener('ended', async () => {
+        if (skipping) return; // Skip handles its own transition
         const finishedSinger = lastSingerName;
         const finishedTitle = currentSong?.title || '';
         const finishedArtist = currentSong?.artist || '';
@@ -1089,8 +1152,8 @@
             document.getElementById('iPause').style.display = 'none';
         }
     };
-    document.getElementById('restart').onclick = () => { audio.currentTime = 0; };
-    document.getElementById('skip').onclick = () => { audio.currentTime = audio.duration; };
+    document.getElementById('restart').onclick = () => { restartOrPrevious(); };
+    document.getElementById('skip').onclick = () => { skipToNext(); };
     document.getElementById('bar').onclick = (e) => {
         const r = e.currentTarget.getBoundingClientRect();
         audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
@@ -1212,10 +1275,10 @@
                 audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + value));
                 break;
             case 'restart':
-                audio.currentTime = 0;
+                restartOrPrevious();
                 break;
             case 'skip':
-                if (audio.duration) audio.currentTime = audio.duration;
+                skipToNext();
                 break;
         }
     }).subscribe();
