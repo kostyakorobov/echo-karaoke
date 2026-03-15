@@ -261,7 +261,6 @@
         .congrats-emoji {
             font-size: 64px;
             margin-bottom: 16px;
-            animation: congrats-bounce 0.6s ease;
         }
         @keyframes congrats-bounce {
             0% { transform: scale(0); }
@@ -617,8 +616,11 @@
 
     function showCongrats(singerName, songTitle, artistName) {
         const emojis = ['🎤', '🔥', '⭐', '🎶', '👏', '🎉'];
-        document.getElementById('congratsEmoji').textContent =
-            emojis[Math.floor(Math.random() * emojis.length)];
+        const emojiEl = document.getElementById('congratsEmoji');
+        emojiEl.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+        emojiEl.style.animation = 'none';
+        void emojiEl.offsetHeight;
+        emojiEl.style.animation = 'congrats-bounce 0.6s ease';
         document.getElementById('congratsSinger').textContent = singerName || 'Браво!';
         document.getElementById('congratsSong').textContent =
             artistName ? `${artistName} — ${songTitle}` : songTitle;
