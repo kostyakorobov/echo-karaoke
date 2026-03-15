@@ -242,6 +242,98 @@
         .idle p { color: #a3a3a3; font-size: 18px; margin-top: 12px; }
         .idle .waiting { color: #c084fc; font-size: 16px; margin-top: 24px; }
 
+        /* Congrats + Countdown overlay */
+        .overlay-screen {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            background: #0a0a0a;
+            z-index: 20;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+        .overlay-screen.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        /* Congrats */
+        .congrats-emoji {
+            font-size: 64px;
+            margin-bottom: 16px;
+            animation: congrats-bounce 0.6s ease;
+        }
+        @keyframes congrats-bounce {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+        .congrats-singer {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .congrats-song {
+            font-size: 20px;
+            color: #a3a3a3;
+            font-weight: 500;
+        }
+        .congrats-label {
+            font-size: 14px;
+            color: #525252;
+            margin-top: 24px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        /* Countdown */
+        .countdown-number {
+            font-size: 120px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            line-height: 1;
+            animation: countdown-pop 1s ease;
+        }
+        @keyframes countdown-pop {
+            0% { transform: scale(1.5); opacity: 0; }
+            30% { transform: scale(1); opacity: 1; }
+            100% { opacity: 1; }
+        }
+        .countdown-next-label {
+            font-size: 14px;
+            color: #525252;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 32px;
+        }
+        .countdown-next-song {
+            font-size: 28px;
+            font-weight: 700;
+            color: #fff;
+            margin-top: 8px;
+        }
+        .countdown-next-artist {
+            font-size: 18px;
+            color: #a3a3a3;
+            margin-top: 4px;
+        }
+        .countdown-next-singer {
+            font-size: 18px;
+            color: #c084fc;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+        .countdown-handoff {
+            font-size: 16px;
+            color: #737373;
+            margin-top: 20px;
+            font-style: italic;
+        }
+
         /* Toast notification */
         .player-toast {
             position: fixed;
@@ -309,6 +401,24 @@
         </div>
         <div class="line active" id="line1"></div>
         <div class="singer" id="singer"></div>
+
+        <!-- Congrats overlay -->
+        <div class="overlay-screen" id="congratsScreen">
+            <div class="congrats-emoji" id="congratsEmoji"></div>
+            <div class="congrats-singer" id="congratsSinger"></div>
+            <div class="congrats-song" id="congratsSong"></div>
+            <div class="congrats-label">Отличное выступление!</div>
+        </div>
+
+        <!-- Countdown overlay -->
+        <div class="overlay-screen" id="countdownScreen">
+            <div class="countdown-number" id="countdownNumber"></div>
+            <div class="countdown-next-label">Следующая песня</div>
+            <div class="countdown-next-song" id="countdownSong"></div>
+            <div class="countdown-next-artist" id="countdownArtist"></div>
+            <div class="countdown-next-singer" id="countdownSinger"></div>
+            <div class="countdown-handoff" id="countdownHandoff"></div>
+        </div>
     </div>
 
     <!-- Toast for queue additions -->
@@ -404,6 +514,7 @@
         if (!song) return;
 
         currentSong = song;
+        lastSingerName = userName || '';
         audio.src = song.audio_path;
         document.getElementById('title').textContent = song.title;
         document.getElementById('nowDot').style.display = '';
@@ -501,8 +612,82 @@
         }, () => { updateQueueDisplay(); })
         .subscribe();
 
-    // --- When track ends, play next ---
+    // --- When track ends: congrats → countdown → next song ---
+    let lastSingerName = '';
+
+    function showCongrats(singerName, songTitle, artistName) {
+        const emojis = ['🎤', '🔥', '⭐', '🎶', '👏', '🎉'];
+        document.getElementById('congratsEmoji').textContent =
+            emojis[Math.floor(Math.random() * emojis.length)];
+        document.getElementById('congratsSinger').textContent = singerName || 'Браво!';
+        document.getElementById('congratsSong').textContent =
+            artistName ? `${artistName} — ${songTitle}` : songTitle;
+        document.getElementById('congratsScreen').classList.add('visible');
+        // Hide lyrics
+        document.getElementById('line1').innerHTML = '';
+        document.getElementById('singer').innerHTML = '';
+    }
+
+    function hideCongrats() {
+        document.getElementById('congratsScreen').classList.remove('visible');
+    }
+
+    function showCountdown(nextSong, nextArtist, nextSinger, currentSingerName) {
+        document.getElementById('countdownSong').textContent = nextSong;
+        document.getElementById('countdownArtist').textContent = nextArtist;
+        document.getElementById('countdownSinger').textContent =
+            nextSinger ? `Поёт: ${nextSinger}` : '';
+        // Show handoff message if singer changes
+        const handoff = document.getElementById('countdownHandoff');
+        if (nextSinger && nextSinger !== currentSingerName) {
+            handoff.textContent = `Передай микрофон — ${nextSinger}!`;
+        } else {
+            handoff.textContent = '';
+        }
+        document.getElementById('countdownScreen').classList.add('visible');
+
+        let count = 5;
+        const numEl = document.getElementById('countdownNumber');
+        numEl.textContent = count;
+        numEl.style.animation = 'none';
+        void numEl.offsetHeight;
+        numEl.style.animation = '';
+
+        return new Promise(resolve => {
+            const interval = setInterval(() => {
+                count--;
+                if (count <= 0) {
+                    clearInterval(interval);
+                    document.getElementById('countdownScreen').classList.remove('visible');
+                    resolve();
+                } else {
+                    numEl.textContent = count;
+                    numEl.style.animation = 'none';
+                    void numEl.offsetHeight;
+                    numEl.style.animation = '';
+                }
+            }, 1000);
+        });
+    }
+
+    function goToIdle() {
+        document.getElementById('idle').classList.remove('hidden');
+        document.getElementById('idleStatus').textContent = 'Очередь пуста';
+        document.getElementById('iPlay').style.display = '';
+        document.getElementById('iPause').style.display = 'none';
+        document.getElementById('title').textContent = '—';
+        document.getElementById('nowMeta').innerHTML = '';
+        document.getElementById('nowDot').style.display = 'none';
+        document.getElementById('queueList').innerHTML = '';
+        currentSong = null;
+        lines = [];
+    }
+
     audio.addEventListener('ended', async () => {
+        const finishedSinger = lastSingerName;
+        const finishedTitle = currentSong?.title || '';
+        const finishedArtist = currentSong?.artist || '';
+
         // Mark current as done
         const { data: playing } = await sb.from('karaoke_queue')
             .select('id')
@@ -515,32 +700,41 @@
                 .eq('id', playing[0].id);
         }
 
-        // Check for next
+        // Show congrats
+        showCongrats(finishedSinger, finishedTitle, finishedArtist);
+
+        // Check for next song
         const { data: next } = await sb.from('karaoke_queue')
-            .select('*')
+            .select('*, karaoke_songs(title, artist)')
             .eq('room_id', ROOM_ID)
             .eq('status', 'waiting')
             .order('position', { ascending: true })
             .limit(1);
 
         if (next && next.length > 0) {
+            // Wait 5s on congrats, then countdown
+            await new Promise(r => setTimeout(r, 5000));
+            hideCongrats();
+
+            const nextTitle = next[0].karaoke_songs?.title || '—';
+            const nextArtist = next[0].karaoke_songs?.artist || '';
+            const nextSinger = next[0].user_name || '';
+
+            await showCountdown(nextTitle, nextArtist, nextSinger, finishedSinger);
+
+            // Now play
             await sb.from('karaoke_queue')
                 .update({ status: 'playing' })
                 .eq('id', next[0].id);
             await loadSong(next[0].song_id, next[0].user_name);
         } else {
-            // Back to idle
-            document.getElementById('idle').classList.remove('hidden');
-            document.getElementById('idleStatus').textContent = 'Очередь пуста';
-            document.getElementById('iPlay').style.display = '';
-            document.getElementById('iPause').style.display = 'none';
-            document.getElementById('title').textContent = '—';
-            document.getElementById('nowMeta').innerHTML = '';
-            document.getElementById('nowDot').style.display = 'none';
-            document.getElementById('queueList').innerHTML = '';
-            currentSong = null;
-            lines = [];
+            // No next — show congrats for 5s then idle
+            await new Promise(r => setTimeout(r, 5000));
+            hideCongrats();
+            goToIdle();
         }
+
+        updateQueueDisplay();
     });
 
     // --- Render ---
