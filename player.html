@@ -316,7 +316,7 @@
         </div>
     </div>
 
-    <audio id="audio" preload="auto" crossorigin="anonymous"></audio>
+    <audio id="audio" preload="auto"></audio>
 
     <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -389,7 +389,15 @@
         }
 
         document.getElementById('idle').classList.add('hidden');
-        audio.play();
+        try {
+            await audio.play();
+        } catch (e) {
+            console.warn('Autoplay blocked, waiting for user gesture:', e.message);
+            // Song is loaded but not playing — user can click Play
+            document.getElementById('iPlay').style.display = '';
+            document.getElementById('iPause').style.display = 'none';
+            return;
+        }
         document.getElementById('iPlay').style.display = 'none';
         document.getElementById('iPause').style.display = '';
         updateUpNext();
@@ -572,42 +580,13 @@
         if (e.code === 'ArrowLeft') audio.currentTime = Math.max(0, audio.currentTime - 5);
     });
 
-    // --- Visual FX: Audio-reactive particles + glow ---
+    // --- Visual FX: Particles + glow (no AudioContext — safe for autoplay) ---
     const fxCanvas = document.getElementById('fxCanvas');
     const fxCtx = fxCanvas.getContext('2d');
     const glowEl = document.getElementById('reactiveGlow');
-    let audioCtx = null;
-    let analyser = null;
-    let freqData = null;
-    let audioSourceConnected = false;
     const particles = [];
-    const MAX_PARTICLES = 60;
-
-    function initAudioAnalyser() {
-        if (audioCtx) return;
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        freqData = new Uint8Array(analyser.frequencyBinCount);
-    }
-
-    function connectAudioSource() {
-        if (audioSourceConnected || !audioCtx) return;
-        try {
-            const source = audioCtx.createMediaElementSource(audio);
-            source.connect(analyser);
-            analyser.connect(audioCtx.destination);
-            audioSourceConnected = true;
-        } catch (e) { /* already connected */ }
-    }
-
-    function getEnergy() {
-        if (!analyser || !freqData) return 0;
-        analyser.getByteFrequencyData(freqData);
-        let sum = 0;
-        for (let i = 0; i < freqData.length; i++) sum += freqData[i];
-        return sum / (freqData.length * 255); // 0..1
-    }
+    const MAX_PARTICLES = 50;
+    let fxFrame = 0;
 
     function resizeFxCanvas() {
         const rect = fxCanvas.parentElement.getBoundingClientRect();
@@ -617,40 +596,38 @@
     resizeFxCanvas();
     window.addEventListener('resize', resizeFxCanvas);
 
-    function spawnParticle(energy) {
+    function spawnParticle() {
         const w = fxCanvas.width, h = fxCanvas.height;
         particles.push({
-            x: Math.random() * w,
+            x: w * 0.2 + Math.random() * w * 0.6,
             y: h + 10,
-            vx: (Math.random() - 0.5) * 1.5,
-            vy: -(1 + Math.random() * 2 + energy * 3),
-            size: 2 + Math.random() * 3 + energy * 4,
+            vx: (Math.random() - 0.5) * 1.2,
+            vy: -(0.8 + Math.random() * 1.5),
+            size: 2 + Math.random() * 4,
             life: 1,
-            decay: 0.003 + Math.random() * 0.008,
-            hue: 270 + Math.random() * 60, // purple to pink range
+            decay: 0.004 + Math.random() * 0.006,
+            hue: 270 + Math.random() * 60,
         });
     }
 
     function renderFx() {
-        const energy = getEnergy();
         const w = fxCanvas.width, h = fxCanvas.height;
-
         fxCtx.clearRect(0, 0, w, h);
+        fxFrame++;
 
-        // Spawn particles based on energy
-        if (!audio.paused && energy > 0.05) {
-            const spawnCount = Math.floor(energy * 4);
-            for (let i = 0; i < spawnCount && particles.length < MAX_PARTICLES; i++) {
-                spawnParticle(energy);
-            }
+        const isPlaying = !audio.paused && !audio.ended && audio.currentTime > 0;
+
+        // Spawn particles when music is playing
+        if (isPlaying && fxFrame % 3 === 0 && particles.length < MAX_PARTICLES) {
+            spawnParticle();
         }
 
-        // Update & draw particles
+        // Update & draw
         for (let i = particles.length - 1; i >= 0; i--) {
             const p = particles[i];
             p.x += p.vx;
             p.y += p.vy;
-            p.vy *= 0.99;
+            p.vx += (Math.random() - 0.5) * 0.1;
             p.life -= p.decay;
 
             if (p.life <= 0) {
@@ -658,37 +635,25 @@
                 continue;
             }
 
-            const alpha = p.life * 0.6;
+            const alpha = p.life * 0.5;
             fxCtx.beginPath();
             fxCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
             fxCtx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${alpha})`;
             fxCtx.fill();
 
-            // Glow around particle
+            // Soft glow
             fxCtx.beginPath();
-            fxCtx.arc(p.x, p.y, p.size * p.life * 3, 0, Math.PI * 2);
-            fxCtx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${alpha * 0.15})`;
+            fxCtx.arc(p.x, p.y, p.size * p.life * 2.5, 0, Math.PI * 2);
+            fxCtx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${alpha * 0.12})`;
             fxCtx.fill();
         }
 
-        // Reactive glow
-        const glowOpacity = 0.08 + energy * 0.25;
-        const glowScale = 1 + energy * 0.3;
-        glowEl.style.setProperty('--glow-opacity', glowOpacity.toFixed(3));
-        glowEl.style.transform = `scale(${glowScale.toFixed(2)})`;
+        // Reactive glow — gentle pulse when playing
+        const pulse = isPlaying ? 0.12 + Math.sin(fxFrame * 0.03) * 0.04 : 0.06;
+        glowEl.style.setProperty('--glow-opacity', pulse.toFixed(3));
 
         requestAnimationFrame(renderFx);
     }
-
-    // Init AudioContext on first user gesture (required by browsers)
-    function initFxOnGesture() {
-        if (audioCtx) return;
-        initAudioAnalyser();
-        connectAudioSource();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-    }
-    document.addEventListener('click', initFxOnGesture, { once: false });
-    document.addEventListener('keydown', initFxOnGesture, { once: false });
 
     requestAnimationFrame(renderFx);
 
