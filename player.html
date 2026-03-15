@@ -430,6 +430,53 @@
         if (e.code === 'ArrowLeft') audio.currentTime = Math.max(0, audio.currentTime - 5);
     });
 
+    // --- Remote commands via Realtime broadcast ---
+    const cmdChannel = sb.channel(`room_commands_${ROOM_ID}`);
+
+    function broadcastState(state) {
+        cmdChannel.send({
+            type: 'broadcast',
+            event: 'player_state',
+            payload: { state }
+        });
+    }
+
+    cmdChannel.on('broadcast', { event: 'player_command' }, ({ payload }) => {
+        const { command, value } = payload;
+        switch (command) {
+            case 'play':
+                if (audio.paused) {
+                    if (!currentSong) return;
+                    audio.play();
+                    document.getElementById('idle').classList.add('hidden');
+                    document.getElementById('iPlay').style.display = 'none';
+                    document.getElementById('iPause').style.display = '';
+                }
+                break;
+            case 'pause':
+                if (!audio.paused) {
+                    audio.pause();
+                    document.getElementById('iPlay').style.display = '';
+                    document.getElementById('iPause').style.display = 'none';
+                }
+                break;
+            case 'seek':
+                audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + value));
+                break;
+            case 'restart':
+                audio.currentTime = 0;
+                break;
+            case 'skip':
+                if (audio.duration) audio.currentTime = audio.duration;
+                break;
+        }
+    }).subscribe();
+
+    // Broadcast state changes to remote
+    audio.addEventListener('play', () => broadcastState('playing'));
+    audio.addEventListener('pause', () => broadcastState('paused'));
+    audio.addEventListener('ended', () => broadcastState('ended'));
+
     // --- Init ---
     loadFirstSong();
     checkQueue();

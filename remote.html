@@ -298,6 +298,97 @@
             background: rgba(239, 68, 68, 0.15);
             color: #ef4444;
         }
+        .queue-move {
+            width: 28px; height: 28px;
+            border-radius: 50%;
+            border: none;
+            background: transparent;
+            color: #525252;
+            font-size: 16px;
+            cursor: pointer;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .queue-move:active {
+            background: rgba(168, 85, 247, 0.15);
+            color: #a855f7;
+        }
+        .queue-move:disabled {
+            opacity: 0.2;
+            pointer-events: none;
+        }
+        .queue-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+
+        /* Playback controls */
+        .playback-controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border-bottom: 1px solid #1a1a1a;
+            flex-shrink: 0;
+            display: none;
+        }
+        .playback-controls.visible { display: flex; }
+        .ctrl-btn {
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            border: none;
+            background: #1a1a1a;
+            color: #d4d4d4;
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .ctrl-btn:active {
+            background: #262626;
+            transform: scale(0.95);
+        }
+        .ctrl-btn.primary {
+            width: 52px; height: 52px;
+            background: #a855f7;
+            color: #fff;
+        }
+        .ctrl-btn.primary:active {
+            background: #9333ea;
+        }
+        .ctrl-btn svg {
+            width: 22px; height: 22px;
+            fill: currentColor;
+        }
+        .ctrl-btn.primary svg {
+            width: 26px; height: 26px;
+        }
+        .seek-label {
+            font-size: 10px;
+            color: #737373;
+            position: absolute;
+            bottom: -14px;
+        }
+
+        /* Confirm modal */
+        .confirm-text {
+            font-size: 15px;
+            color: #a3a3a3;
+            margin-bottom: 16px;
+            line-height: 1.4;
+        }
+        .modal-btn.danger {
+            background: #ef4444;
+            color: #fff;
+        }
 
         /* Name input modal */
         .modal-overlay {
@@ -415,6 +506,26 @@
         </div>
     </div>
 
+    <!-- Playback controls -->
+    <div class="playback-controls" id="playbackControls">
+        <button class="ctrl-btn" id="ctrlRewind" title="-10 сек">
+            <svg viewBox="0 0 24 24"><path d="M12.5 3C7.81 3 4.01 6.54 3.68 11H1l3.89 3.89.07.14L9 11H6.73C7.06 7.93 9.52 5.5 12.5 5.5c3.31 0 6 2.69 6 6s-2.69 6-6 6c-1.66 0-3.16-.67-4.24-1.76l-1.42 1.42C8.39 18.71 10.35 19.5 12.5 19.5c4.69 0 8.5-3.81 8.5-8.5S17.19 3 12.5 3z"/><text x="12.5" y="14" text-anchor="middle" font-size="7.5" fill="currentColor" font-weight="700">10</text></svg>
+        </button>
+        <button class="ctrl-btn" id="ctrlRestart" title="Сначала">
+            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button class="ctrl-btn primary" id="ctrlPlayPause" title="Play/Пауза">
+            <svg viewBox="0 0 24 24" id="ctrlPlayIcon"><polygon points="9,5 20,12 9,19"/></svg>
+            <svg viewBox="0 0 24 24" id="ctrlPauseIcon" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <button class="ctrl-btn" id="ctrlSkip" title="Следующий">
+            <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <button class="ctrl-btn" id="ctrlForward" title="+10 сек">
+            <svg viewBox="0 0 24 24"><path d="M11.5 3c4.69 0 8.5 3.81 8.5 8.5s-3.81 8.5-8.5 8.5c-2.15 0-4.11-.79-5.66-2.34l1.42-1.42C8.34 17.83 9.84 18.5 11.5 18.5c3.31 0 6-2.69 6-6s-2.69-6-6-6C8.52 6.5 6.06 8.93 5.73 12H8l-3.89 3.89-.07-.14L0 12h2.68c.33-4.46 4.13-8 8.82-8z"/><text x="11.5" y="14" text-anchor="middle" font-size="7.5" fill="currentColor" font-weight="700">10</text></svg>
+        </button>
+    </div>
+
     <div class="search-wrap">
         <input class="search-input" id="search" type="text"
                placeholder="Поиск песни или артиста..." autocomplete="off">
@@ -452,6 +563,18 @@
         </div>
     </div>
 
+    <!-- Confirm delete modal -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal">
+            <h3>Убрать из очереди?</h3>
+            <div class="confirm-text" id="confirmText"></div>
+            <div class="modal-buttons">
+                <button class="modal-btn cancel" id="confirmCancel">Отмена</button>
+                <button class="modal-btn danger" id="confirmDelete">Убрать</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
@@ -464,6 +587,19 @@
 
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
     let pendingSongId = null;
+    let isPlaying = false;
+
+    // --- Realtime broadcast channel for player commands ---
+    const cmdChannel = sb.channel(`room_commands_${ROOM_ID}`);
+    cmdChannel.subscribe();
+
+    function sendCommand(command, value) {
+        cmdChannel.send({
+            type: 'broadcast',
+            event: 'player_command',
+            payload: { command, value }
+        });
+    }
 
     // --- Telegram Mini App integration ---
     const tg = window.Telegram?.WebApp;
@@ -619,10 +755,78 @@
         loadQueue();
     }
 
-    // --- Remove from queue ---
-    window._removeFromQueue = async function(queueId) {
-        await sb.from('karaoke_queue').delete().eq('id', queueId);
-        showToast('Убрано из очереди');
+    // --- Playback controls ---
+    document.getElementById('ctrlPlayPause').onclick = () => {
+        isPlaying = !isPlaying;
+        sendCommand(isPlaying ? 'play' : 'pause');
+        document.getElementById('ctrlPlayIcon').style.display = isPlaying ? 'none' : '';
+        document.getElementById('ctrlPauseIcon').style.display = isPlaying ? '' : 'none';
+    };
+    document.getElementById('ctrlRewind').onclick = () => sendCommand('seek', -10);
+    document.getElementById('ctrlForward').onclick = () => sendCommand('seek', 10);
+    document.getElementById('ctrlRestart').onclick = () => sendCommand('restart');
+    document.getElementById('ctrlSkip').onclick = () => {
+        sendCommand('skip');
+        isPlaying = false;
+        document.getElementById('ctrlPlayIcon').style.display = '';
+        document.getElementById('ctrlPauseIcon').style.display = 'none';
+    };
+
+    // Listen for player state updates
+    cmdChannel.on('broadcast', { event: 'player_state' }, ({ payload }) => {
+        if (payload.state === 'playing') {
+            isPlaying = true;
+            document.getElementById('ctrlPlayIcon').style.display = 'none';
+            document.getElementById('ctrlPauseIcon').style.display = '';
+        } else if (payload.state === 'paused' || payload.state === 'ended') {
+            isPlaying = false;
+            document.getElementById('ctrlPlayIcon').style.display = '';
+            document.getElementById('ctrlPauseIcon').style.display = 'none';
+        }
+    });
+
+    // --- Remove from queue (with confirmation) ---
+    let pendingDeleteId = null;
+    let pendingDeleteTitle = null;
+
+    window._confirmRemove = function(queueId, songTitle) {
+        pendingDeleteId = queueId;
+        document.getElementById('confirmText').textContent = songTitle;
+        document.getElementById('confirmModal').classList.add('visible');
+    };
+    document.getElementById('confirmCancel').onclick = () => {
+        document.getElementById('confirmModal').classList.remove('visible');
+    };
+    document.getElementById('confirmDelete').onclick = async () => {
+        document.getElementById('confirmModal').classList.remove('visible');
+        if (pendingDeleteId) {
+            await sb.from('karaoke_queue').delete().eq('id', pendingDeleteId);
+            showToast('Убрано из очереди');
+            loadQueue();
+        }
+    };
+
+    // --- Move in queue ---
+    window._moveInQueue = async function(queueId, direction) {
+        const { data: items } = await sb.from('karaoke_queue')
+            .select('id, position')
+            .eq('room_id', ROOM_ID)
+            .eq('status', 'waiting')
+            .order('position', { ascending: true });
+
+        if (!items) return;
+        const idx = items.findIndex(i => i.id === queueId);
+        if (idx < 0) return;
+
+        const swapIdx = idx + direction;
+        if (swapIdx < 0 || swapIdx >= items.length) return;
+
+        // Swap positions
+        const posA = items[idx].position;
+        const posB = items[swapIdx].position;
+
+        await sb.from('karaoke_queue').update({ position: posB }).eq('id', items[idx].id);
+        await sb.from('karaoke_queue').update({ position: posA }).eq('id', items[swapIdx].id);
         loadQueue();
     };
 
@@ -635,6 +839,7 @@
             .limit(1);
 
         const np = document.getElementById('nowPlaying');
+        const pc = document.getElementById('playbackControls');
         if (playing && playing.length > 0) {
             const item = playing[0];
             document.getElementById('npTitle').textContent = item.karaoke_songs?.title || '—';
@@ -642,8 +847,13 @@
             document.getElementById('npSinger').textContent = item.user_name
                 ? `Поёт: ${item.user_name}` : '';
             np.classList.add('visible');
+            pc.classList.add('visible');
         } else {
             np.classList.remove('visible');
+            pc.classList.remove('visible');
+            isPlaying = false;
+            document.getElementById('ctrlPlayIcon').style.display = '';
+            document.getElementById('ctrlPauseIcon').style.display = 'none';
         }
     }
 
@@ -674,8 +884,11 @@
                     <div class="queue-song">${esc(item.karaoke_songs?.title || '—')}</div>
                     <div class="queue-singer">${esc(item.user_name || 'Аноним')}</div>
                 </div>
-                <div class="queue-status waiting">Ожидание</div>
-                <button class="queue-remove" onclick="window._removeFromQueue('${item.id}')" title="Убрать">✕</button>
+                <div class="queue-actions">
+                    <button class="queue-move" onclick="window._moveInQueue('${item.id}', -1)" title="Вверх" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
+                    <button class="queue-move" onclick="window._moveInQueue('${item.id}', 1)" title="Вниз" ${i === items.length - 1 ? 'disabled' : ''}>&#9660;</button>
+                </div>
+                <button class="queue-remove" onclick="window._confirmRemove('${item.id}', '${esc(item.karaoke_songs?.title || 'Песня')}')" title="Убрать">✕</button>
             </div>
         `).join('');
     }
