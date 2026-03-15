@@ -69,12 +69,26 @@
             position: relative;
             min-height: 0;
         }
-        .lyrics-area::before {
-            content: '';
+        /* Particle canvas behind lyrics */
+        .fx-canvas {
             position: absolute;
-            width: 600px; height: 600px;
-            background: radial-gradient(circle, rgba(168, 85, 247, 0.15) 0%, transparent 70%);
+            inset: 0;
             pointer-events: none;
+            z-index: 0;
+        }
+        .line, .singer, .up-next, .idle {
+            position: relative;
+            z-index: 1;
+        }
+        /* Reactive glow — driven by JS */
+        .reactive-glow {
+            position: absolute;
+            width: 700px; height: 700px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 0;
+            background: radial-gradient(circle, rgba(168, 85, 247, var(--glow-opacity, 0.1)) 0%, transparent 70%);
+            transition: opacity 0.1s;
         }
         .line {
             font-size: 48px;
@@ -256,6 +270,8 @@
     </div>
 
     <div class="lyrics-area">
+        <canvas class="fx-canvas" id="fxCanvas"></canvas>
+        <div class="reactive-glow" id="reactiveGlow"></div>
         <div class="idle" id="idle">
             <h1>ЭХО</h1>
             <p>Ожидание треков в очереди...</p>
@@ -549,6 +565,123 @@
         if (e.code === 'ArrowRight') audio.currentTime += 5;
         if (e.code === 'ArrowLeft') audio.currentTime = Math.max(0, audio.currentTime - 5);
     });
+
+    // --- Visual FX: Audio-reactive particles + glow ---
+    const fxCanvas = document.getElementById('fxCanvas');
+    const fxCtx = fxCanvas.getContext('2d');
+    const glowEl = document.getElementById('reactiveGlow');
+    let audioCtx = null;
+    let analyser = null;
+    let freqData = null;
+    let audioSourceConnected = false;
+    const particles = [];
+    const MAX_PARTICLES = 60;
+
+    function initAudioAnalyser() {
+        if (audioCtx) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        freqData = new Uint8Array(analyser.frequencyBinCount);
+    }
+
+    function connectAudioSource() {
+        if (audioSourceConnected || !audioCtx) return;
+        try {
+            const source = audioCtx.createMediaElementSource(audio);
+            source.connect(analyser);
+            analyser.connect(audioCtx.destination);
+            audioSourceConnected = true;
+        } catch (e) { /* already connected */ }
+    }
+
+    function getEnergy() {
+        if (!analyser || !freqData) return 0;
+        analyser.getByteFrequencyData(freqData);
+        let sum = 0;
+        for (let i = 0; i < freqData.length; i++) sum += freqData[i];
+        return sum / (freqData.length * 255); // 0..1
+    }
+
+    function resizeFxCanvas() {
+        const rect = fxCanvas.parentElement.getBoundingClientRect();
+        fxCanvas.width = rect.width;
+        fxCanvas.height = rect.height;
+    }
+    resizeFxCanvas();
+    window.addEventListener('resize', resizeFxCanvas);
+
+    function spawnParticle(energy) {
+        const w = fxCanvas.width, h = fxCanvas.height;
+        particles.push({
+            x: Math.random() * w,
+            y: h + 10,
+            vx: (Math.random() - 0.5) * 1.5,
+            vy: -(1 + Math.random() * 2 + energy * 3),
+            size: 2 + Math.random() * 3 + energy * 4,
+            life: 1,
+            decay: 0.003 + Math.random() * 0.008,
+            hue: 270 + Math.random() * 60, // purple to pink range
+        });
+    }
+
+    function renderFx() {
+        const energy = getEnergy();
+        const w = fxCanvas.width, h = fxCanvas.height;
+
+        fxCtx.clearRect(0, 0, w, h);
+
+        // Spawn particles based on energy
+        if (!audio.paused && energy > 0.05) {
+            const spawnCount = Math.floor(energy * 4);
+            for (let i = 0; i < spawnCount && particles.length < MAX_PARTICLES; i++) {
+                spawnParticle(energy);
+            }
+        }
+
+        // Update & draw particles
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const p = particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy *= 0.99;
+            p.life -= p.decay;
+
+            if (p.life <= 0) {
+                particles.splice(i, 1);
+                continue;
+            }
+
+            const alpha = p.life * 0.6;
+            fxCtx.beginPath();
+            fxCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+            fxCtx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${alpha})`;
+            fxCtx.fill();
+
+            // Glow around particle
+            fxCtx.beginPath();
+            fxCtx.arc(p.x, p.y, p.size * p.life * 3, 0, Math.PI * 2);
+            fxCtx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${alpha * 0.15})`;
+            fxCtx.fill();
+        }
+
+        // Reactive glow
+        const glowOpacity = 0.08 + energy * 0.25;
+        const glowScale = 1 + energy * 0.3;
+        glowEl.style.setProperty('--glow-opacity', glowOpacity.toFixed(3));
+        glowEl.style.transform = `scale(${glowScale.toFixed(2)})`;
+
+        requestAnimationFrame(renderFx);
+    }
+
+    // Start FX when audio plays
+    audio.addEventListener('play', () => {
+        initAudioAnalyser();
+        connectAudioSource();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+    });
+
+    requestAnimationFrame(renderFx);
 
     // --- Remote commands via Realtime broadcast ---
     const cmdChannel = sb.channel(`room_commands_${ROOM_ID}`);
