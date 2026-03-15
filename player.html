@@ -242,6 +242,25 @@
         }
         .idle p { color: #a3a3a3; font-size: 18px; margin-top: 12px; }
         .idle .waiting { color: #c084fc; font-size: 16px; margin-top: 24px; }
+        .idle-start {
+            margin-top: 32px;
+            padding: 16px 48px;
+            border-radius: 50px;
+            border: none;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            color: #fff;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+            animation: idle-start-pulse 2s ease-in-out infinite;
+        }
+        .idle-start:hover { transform: scale(1.05); }
+        .idle-start.hidden { display: none; }
+        @keyframes idle-start-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
 
         /* Congrats + Countdown overlay */
         .overlay-screen {
@@ -461,6 +480,7 @@
         <div class="idle" id="idle">
             <h1>ЭХО</h1>
             <p>Ожидание треков в очереди...</p>
+            <button class="idle-start" id="idleStart">Начать</button>
             <div class="waiting" id="idleStatus"></div>
         </div>
         <div class="line active" id="line1"></div>
@@ -1329,9 +1349,23 @@
     audio.addEventListener('pause', () => broadcastState('paused'));
     audio.addEventListener('ended', () => broadcastState('ended'));
 
+    // --- Autoplay unlock: one-time tap on player page ---
+    let autoplayUnlocked = false;
+
+    document.getElementById('idleStart').onclick = async () => {
+        // Silent play/pause to unlock autoplay
+        audio.src = '';
+        try { await audio.play(); } catch(e) {}
+        audio.pause();
+        autoplayUnlocked = true;
+        document.getElementById('idleStart').classList.add('hidden');
+        document.getElementById('idleStatus').textContent = 'Готово — добавляй песни с пульта!';
+        // If songs already in queue, start playing
+        checkQueue();
+    };
+
     // --- Init ---
     loadFirstSong();
-    checkQueue();
     updateQueueDisplay();
     requestAnimationFrame(tick);
     </script>
