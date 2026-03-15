@@ -31,9 +31,56 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
-        .song-info { text-align: right; }
-        .song-title { font-weight: 600; font-size: 16px; }
-        .song-artist { color: #a3a3a3; font-size: 14px; }
+        /* Now playing + queue panel (right side) */
+        .now-queue {
+            text-align: right;
+            min-width: 0;
+        }
+        .now-current {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .now-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #a855f7;
+            flex-shrink: 0;
+            animation: pulse-dot 2s infinite;
+        }
+        .now-title {
+            font-weight: 600;
+            font-size: 16px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .now-meta {
+            font-size: 13px;
+            color: #a3a3a3;
+            margin-top: 2px;
+        }
+        .now-meta .singer-name { color: #c084fc; }
+        .queue-list {
+            margin-top: 6px;
+            border-top: 1px solid #1a1a1a;
+            padding-top: 6px;
+        }
+        .queue-list-item {
+            font-size: 12px;
+            color: #525252;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.6;
+        }
+        .queue-list-item .q-pos {
+            color: #404040;
+            margin-right: 6px;
+        }
+        .queue-list-item .q-song { color: #737373; }
+        .queue-list-item .q-singer { color: #a855f7; font-size: 11px; }
 
         /* Queue indicator */
         .queue-badge {
@@ -76,7 +123,7 @@
             pointer-events: none;
             z-index: 0;
         }
-        .line, .singer, .up-next, .idle {
+        .line, .singer, .idle {
             position: relative;
             z-index: 1;
         }
@@ -195,27 +242,6 @@
         .idle p { color: #a3a3a3; font-size: 18px; margin-top: 12px; }
         .idle .waiting { color: #c084fc; font-size: 16px; margin-top: 24px; }
 
-        /* Up next bar */
-        .up-next {
-            position: absolute;
-            bottom: 20px;
-            left: 40px;
-            font-size: 13px;
-            color: #737373;
-            opacity: 0;
-            transition: opacity 0.4s ease;
-        }
-        .up-next.visible { opacity: 1; }
-        .up-next-label {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: #525252;
-            margin-bottom: 4px;
-        }
-        .up-next-song { color: #a3a3a3; font-weight: 600; }
-        .up-next-singer { color: #c084fc; }
-
         /* Toast notification */
         .player-toast {
             position: fixed;
@@ -263,9 +289,13 @@
             <div class="queue-dot"></div>
             <span id="roomId">Зал не выбран</span>
         </div>
-        <div class="song-info">
-            <div class="song-title" id="title">—</div>
-            <div class="song-artist" id="artist">—</div>
+        <div class="now-queue" id="nowQueue">
+            <div class="now-current">
+                <div class="now-dot" id="nowDot" style="display:none"></div>
+                <div class="now-title" id="title">—</div>
+            </div>
+            <div class="now-meta" id="nowMeta"></div>
+            <div class="queue-list" id="queueList"></div>
         </div>
     </div>
 
@@ -279,10 +309,6 @@
         </div>
         <div class="line active" id="line1"></div>
         <div class="singer" id="singer"></div>
-        <div class="up-next" id="upNext">
-            <div class="up-next-label">Далее</div>
-            <div><span class="up-next-song" id="upNextSong"></span> <span class="up-next-singer" id="upNextSinger"></span></div>
-        </div>
     </div>
 
     <!-- Toast for queue additions -->
@@ -343,26 +369,31 @@
         toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
     }
 
-    // --- Up next ---
-    async function updateUpNext() {
+    // --- Queue display in header ---
+    async function updateQueueDisplay() {
         const { data: items } = await sb.from('karaoke_queue')
             .select('*, karaoke_songs(title, artist)')
             .eq('room_id', ROOM_ID)
             .eq('status', 'waiting')
             .order('position', { ascending: true })
-            .limit(1);
+            .limit(5);
 
-        const el = document.getElementById('upNext');
-        if (items && items.length > 0) {
-            const item = items[0];
-            document.getElementById('upNextSong').textContent =
-                (item.karaoke_songs?.artist || '') + ' — ' + (item.karaoke_songs?.title || '');
-            document.getElementById('upNextSinger').textContent =
-                item.user_name ? `(${item.user_name})` : '';
-            el.classList.add('visible');
-        } else {
-            el.classList.remove('visible');
+        const container = document.getElementById('queueList');
+        if (!items || items.length === 0) {
+            container.innerHTML = '';
+            return;
         }
+
+        container.innerHTML = items.map((item, i) => {
+            const title = item.karaoke_songs?.title || '—';
+            const artist = item.karaoke_songs?.artist || '';
+            const singer = item.user_name || '';
+            return `<div class="queue-list-item">` +
+                `<span class="q-pos">${i + 1}.</span>` +
+                `<span class="q-song">${artist} — ${title}</span>` +
+                (singer ? ` <span class="q-singer">${singer}</span>` : '') +
+                `</div>`;
+        }).join('');
     }
 
     document.getElementById('roomId').textContent = ROOM_ID;
@@ -375,7 +406,10 @@
         currentSong = song;
         audio.src = song.audio_path;
         document.getElementById('title').textContent = song.title;
-        document.getElementById('artist').textContent = song.artist;
+        document.getElementById('nowDot').style.display = '';
+        const metaParts = [song.artist];
+        if (userName) metaParts.push(`<span class="singer-name">${userName}</span>`);
+        document.getElementById('nowMeta').innerHTML = metaParts.join(' · ');
         document.getElementById('singer').innerHTML = userName
             ? `Поёт: <span>${userName}</span>` : '';
 
@@ -400,7 +434,7 @@
         }
         document.getElementById('iPlay').style.display = 'none';
         document.getElementById('iPause').style.display = '';
-        updateUpNext();
+        updateQueueDisplay();
     }
 
     // --- Load directly (no queue, demo mode) ---
@@ -411,8 +445,12 @@
         }
     }
 
-    // --- Check queue ---
+    // --- Check queue (with mutex to prevent race conditions) ---
+    let checkingQueue = false;
     async function checkQueue() {
+        if (checkingQueue) return;
+        checkingQueue = true;
+        try {
         const { data: next } = await sb.from('karaoke_queue')
             .select('*, karaoke_songs(*)')
             .eq('room_id', ROOM_ID)
@@ -427,6 +465,7 @@
                 .eq('id', next[0].id);
             await loadSong(next[0].song_id, next[0].user_name);
         }
+        } finally { checkingQueue = false; }
     }
 
     // --- Realtime: listen for queue changes ---
@@ -444,7 +483,7 @@
             if (song) {
                 showPlayerToast(song.title, song.artist, row.user_name);
             }
-            updateUpNext();
+            updateQueueDisplay();
             // If nothing is playing, pick it up
             if (audio.paused || audio.ended) {
                 checkQueue();
@@ -455,13 +494,13 @@
             schema: 'public',
             table: 'karaoke_queue',
             filter: `room_id=eq.${ROOM_ID}`
-        }, () => { updateUpNext(); })
+        }, () => { updateQueueDisplay(); })
         .on('postgres_changes', {
             event: 'DELETE',
             schema: 'public',
             table: 'karaoke_queue',
             filter: `room_id=eq.${ROOM_ID}`
-        }, () => { updateUpNext(); })
+        }, () => { updateQueueDisplay(); })
         .subscribe();
 
     // --- When track ends, play next ---
@@ -497,6 +536,10 @@
             document.getElementById('idleStatus').textContent = 'Очередь пуста';
             document.getElementById('iPlay').style.display = '';
             document.getElementById('iPause').style.display = 'none';
+            document.getElementById('title').textContent = '—';
+            document.getElementById('nowMeta').innerHTML = '';
+            document.getElementById('nowDot').style.display = 'none';
+            document.getElementById('queueList').innerHTML = '';
             currentSong = null;
             lines = [];
         }
@@ -707,7 +750,7 @@
     // --- Init ---
     loadFirstSong();
     checkQueue();
-    updateUpNext();
+    updateQueueDisplay();
     requestAnimationFrame(tick);
     </script>
 </body>
