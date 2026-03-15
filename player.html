@@ -143,6 +143,7 @@
             line-height: 1.5;
             text-align: center;
             max-width: 900px;
+            transition: opacity 0.8s ease;
         }
         .line.active { opacity: 1; }
 
@@ -359,7 +360,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: opacity 0.5s ease;
         }
+        .interlude-ring.fade-out { opacity: 0; }
         .interlude-ring svg {
             position: absolute;
             inset: -3px;
@@ -1011,12 +1014,15 @@
         // Timer
         timer.textContent = Math.ceil(secsLeft);
 
-        // Big 3-2-1 countdown in last 3.5 seconds
-        if (secsLeft <= 3.5 && secsLeft > 0.5) {
+        // Big countdown in last 5 seconds — hide ring, show numbers
+        const ringEl = document.querySelector('.interlude-ring');
+        if (secsLeft <= 5.5 && secsLeft > 0.5) {
             countdown.textContent = Math.ceil(secsLeft - 0.5);
             countdown.classList.add('visible');
+            ringEl.classList.add('fade-out');
         } else {
             countdown.classList.remove('visible');
+            ringEl.classList.remove('fade-out');
         }
 
         // Hide lyrics during interlude, show only in last LYRICS_PREVIEW_SECS
