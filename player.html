@@ -242,22 +242,47 @@
         }
         .idle p { color: #a3a3a3; font-size: 18px; margin-top: 12px; }
         .idle .waiting { color: #c084fc; font-size: 16px; margin-top: 24px; }
-        .idle-start {
-            margin-top: 32px;
-            padding: 16px 48px;
+        /* Splash screen — full page, before anything loads */
+        .splash {
+            position: fixed; inset: 0;
+            background: #0a0a0a;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity 0.6s ease;
+        }
+        .splash.hidden { opacity: 0; pointer-events: none; }
+        .splash h1 {
+            font-size: 96px; font-weight: 800;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .splash-sub {
+            font-size: 18px;
+            color: #525252;
+            margin-top: 16px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
+        .splash-btn {
+            margin-top: 48px;
+            padding: 18px 56px;
             border-radius: 50px;
             border: none;
             background: linear-gradient(135deg, #a855f7, #ec4899);
             color: #fff;
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 700;
             cursor: pointer;
-            transition: transform 0.2s, opacity 0.2s;
-            animation: idle-start-pulse 2s ease-in-out infinite;
+            transition: transform 0.2s;
+            animation: splash-pulse 2s ease-in-out infinite;
         }
-        .idle-start:hover { transform: scale(1.05); }
-        .idle-start.hidden { display: none; }
-        @keyframes idle-start-pulse {
+        .splash-btn:hover { transform: scale(1.05); }
+        @keyframes splash-pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
@@ -458,6 +483,13 @@
     </style>
 </head>
 <body>
+    <!-- Splash: tap to unlock autoplay and start -->
+    <div class="splash" id="splash">
+        <h1>ЭХО</h1>
+        <div class="splash-sub">караоке</div>
+        <button class="splash-btn" id="splashBtn">Начать</button>
+    </div>
+
     <div class="header">
         <div class="logo">ЭХО.КАРАОКЕ</div>
         <div class="queue-badge">
@@ -480,7 +512,6 @@
         <div class="idle" id="idle">
             <h1>ЭХО</h1>
             <p>Ожидание треков в очереди...</p>
-            <button class="idle-start" id="idleStart">Начать</button>
             <div class="waiting" id="idleStatus"></div>
         </div>
         <div class="line active" id="line1"></div>
@@ -1349,24 +1380,22 @@
     audio.addEventListener('pause', () => broadcastState('paused'));
     audio.addEventListener('ended', () => broadcastState('ended'));
 
-    // --- Autoplay unlock: one-time tap on player page ---
-    let autoplayUnlocked = false;
+    // --- Splash: unlock autoplay + init ---
+    document.getElementById('splashBtn').onclick = async () => {
+        // Unlock autoplay with a silent play
+        const silence = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+        try { await silence.play(); } catch(e) {}
 
-    document.getElementById('idleStart').onclick = async () => {
-        // Silent play/pause to unlock autoplay
-        audio.src = '';
-        try { await audio.play(); } catch(e) {}
-        audio.pause();
-        autoplayUnlocked = true;
-        document.getElementById('idleStart').classList.add('hidden');
-        document.getElementById('idleStatus').textContent = 'Готово — добавляй песни с пульта!';
-        // If songs already in queue, start playing
+        // Hide splash
+        document.getElementById('splash').classList.add('hidden');
+
+        // Init everything
+        loadFirstSong();
         checkQueue();
+        updateQueueDisplay();
     };
 
-    // --- Init ---
-    loadFirstSong();
-    updateQueueDisplay();
+    // Start render loops immediately (they just show idle)
     requestAnimationFrame(tick);
     </script>
 </body>
