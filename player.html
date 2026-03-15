@@ -926,13 +926,54 @@
     }
 
     // --- Restart: if > 3s into song → restart, otherwise previous track ---
+    let goingBack = false;
+
     async function restartOrPrevious() {
         if (audio.currentTime > 3) {
             audio.currentTime = 0;
-        } else {
-            // Try to find previous track and replay it
-            // For now, just restart current
-            audio.currentTime = 0;
+            return;
+        }
+
+        if (goingBack) return;
+        goingBack = true;
+
+        try {
+            // Find last done track in this room
+            const { data: prev } = await sb.from('karaoke_queue')
+                .select('*, karaoke_songs(title, artist)')
+                .eq('room_id', ROOM_ID)
+                .eq('status', 'done')
+                .order('position', { ascending: false })
+                .limit(1);
+
+            if (!prev || prev.length === 0) {
+                audio.currentTime = 0;
+                return;
+            }
+
+            audio.pause();
+
+            // Current playing → back to waiting
+            const { data: playing } = await sb.from('karaoke_queue')
+                .select('id')
+                .eq('room_id', ROOM_ID)
+                .eq('status', 'playing')
+                .limit(1);
+            if (playing && playing.length > 0) {
+                await sb.from('karaoke_queue')
+                    .update({ status: 'waiting' })
+                    .eq('id', playing[0].id);
+            }
+
+            // Previous done → playing
+            await sb.from('karaoke_queue')
+                .update({ status: 'playing' })
+                .eq('id', prev[0].id);
+
+            await loadSong(prev[0].song_id, prev[0].user_name);
+            updateQueueDisplay();
+        } finally {
+            goingBack = false;
         }
     }
 
