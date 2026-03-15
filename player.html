@@ -425,15 +425,13 @@
         document.getElementById('idle').classList.add('hidden');
         try {
             await audio.play();
+            document.getElementById('iPlay').style.display = 'none';
+            document.getElementById('iPause').style.display = '';
         } catch (e) {
             console.warn('Autoplay blocked, waiting for user gesture:', e.message);
-            // Song is loaded but not playing — user can click Play
             document.getElementById('iPlay').style.display = '';
             document.getElementById('iPause').style.display = 'none';
-            return;
         }
-        document.getElementById('iPlay').style.display = 'none';
-        document.getElementById('iPause').style.display = '';
         updateQueueDisplay();
     }
 
@@ -484,8 +482,8 @@
                 showPlayerToast(song.title, song.artist, row.user_name);
             }
             updateQueueDisplay();
-            // If nothing is playing, pick it up
-            if (audio.paused || audio.ended) {
+            // If nothing is loaded, pick it up
+            if (!currentSong) {
                 checkQueue();
             }
         })
