@@ -1138,10 +1138,13 @@
     }
 
     function updateInterlude(t) {
-        if (allWords.length === 0 || audio.paused) {
+        if (allWords.length === 0) {
             if (interludeVisible) hideInterlude();
             return;
         }
+
+        // On pause: freeze current state, don't hide
+        if (audio.paused) return;
 
         const gap = findGap(t);
         if (!gap || gap.gapTotal < INTERLUDE_THRESHOLD) {
@@ -1211,11 +1214,18 @@
             document.getElementById('cur').textContent = fmt(t);
             document.getElementById('dur').textContent = fmt(audio.duration);
         }
-        if (lines.length > 0) {
-            const idx = findCurrentLineIdx(t);
-            renderLine(document.getElementById('line1'), lines[idx] || null, t);
-        }
         updateInterlude(t);
+        if (lines.length > 0) {
+            // During interlude, lyrics opacity is managed by updateInterlude
+            // Only render content when lyrics should be visible
+            const line1 = document.getElementById('line1');
+            if (!interludeVisible || line1.style.opacity !== '0') {
+                const idx = findCurrentLineIdx(t);
+                renderLine(line1, lines[idx] || null, t);
+            } else {
+                line1.innerHTML = '';
+            }
+        }
         requestAnimationFrame(tick);
     }
 
