@@ -1,0 +1,19 @@
+#!/bin/sh
+
+# Gradle wrapper — downloads gradle if not present
+# This is a simplified version. GitHub Actions setup-gradle handles the rest.
+
+GRADLE_VERSION=8.5
+DIST_URL="https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip"
+GRADLE_HOME="${HOME}/.gradle/wrapper/dists/gradle-${GRADLE_VERSION}-bin"
+
+if [ ! -d "$GRADLE_HOME" ]; then
+    echo "Downloading Gradle $GRADLE_VERSION..."
+    mkdir -p "$GRADLE_HOME"
+    curl -sL "$DIST_URL" -o /tmp/gradle.zip
+    unzip -q /tmp/gradle.zip -d "$GRADLE_HOME"
+    rm /tmp/gradle.zip
+fi
+
+GRADLE_BIN=$(find "$GRADLE_HOME" -name "gradle" -type f -path "*/bin/gradle" | head -1)
+exec "$GRADLE_BIN" "$@"
