@@ -1,0 +1,4 @@
+.env
+karaoke_output/
+*.pyc
+__pycache__/
