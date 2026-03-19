@@ -1,6 +1,6 @@
 import { ROOM_ID } from './config.js';
 import { sb, cmdChannel, getSongById, getSongMeta, getFirstSong, getNextWaiting, getQueueWaiting, getCurrentPlaying, getLastDone, setQueueStatus, broadcastState } from './supabase.js';
-import { parseWords, clearLyrics, getLines, isInterludeVisible, renderLine, findCurrentLineIdx, updateInterlude, hideInterlude } from './lyrics.js';
+import { parseWords, clearLyrics, getLines, isInterludeVisible, renderLine, renderNextLine, findCurrentLineIdx, updateInterlude, hideInterlude } from './lyrics.js';
 import { initFx, initCongratsFx } from './fx.js';
 import { showCongrats, hideCongrats, showCountdown } from './congrats.js';
 
@@ -273,11 +273,15 @@ function tick() {
     const lines = getLines();
     if (lines.length > 0) {
         const line1 = document.getElementById('line1');
+        const line2 = document.getElementById('line2');
         if (!isInterludeVisible() || line1.style.opacity !== '0') {
             const idx = findCurrentLineIdx(t);
             renderLine(line1, lines[idx] || null, t);
+            // Next line preview
+            renderNextLine(line2, lines[idx + 1] || null);
         } else {
             line1.innerHTML = '';
+            line2.innerHTML = '';
         }
     }
     requestAnimationFrame(tick);

@@ -241,26 +241,39 @@ def transcribe_groq(vocals_wav_path, language="ru"):
 # --- Merge: LRC текст + Whisper тайминги ---
 
 def merge_lrc_with_whisper(lrc_text, whisper_words):
-    """Заменяем слова Whisper на текст из LRC, сохраняя word-level тайминги."""
-    # Убираем бэк-вокал из LRC
-    clean_lrc = re.sub(r'\([^)]*\)', '', lrc_text, flags=re.DOTALL)
-    clean_lrc = re.sub(r'\[[^\]]*\]', '', clean_lrc, flags=re.DOTALL)
-
-    # Собираем слова из LRC
-    lrc_words = []
-    for line in clean_lrc.split('\n'):
+    """Заменяем слова Whisper на текст из LRC, сохраняя word-level тайминги.
+    Бэк-вокал в скобках помечается флагом backing=True."""
+    # Собираем слова из LRC, помечая бэк-вокал
+    lrc_words = []  # list of (word, is_backing)
+    in_backing = False
+    for line in lrc_text.split('\n'):
         line = re.sub(r'\[\d+:\d+\.\d+\]', '', line).strip()
-        for word in line.split():
-            cleaned = word.strip('.,!?;:()«»""—–…\'"')
-            if cleaned:
-                lrc_words.append(cleaned)
+        for char_group in re.split(r'(\(|\))', line):
+            if char_group == '(':
+                in_backing = True
+                continue
+            elif char_group == ')':
+                in_backing = False
+                continue
+            for word in char_group.split():
+                cleaned = word.strip('.,!?;:«»""—–…\'"')
+                if cleaned:
+                    lrc_words.append((cleaned, in_backing))
 
     if not lrc_words or not whisper_words:
         return whisper_words
 
-    # difflib alignment
+    # Helper to build word entry
+    def make_word(lrc_idx, start, end):
+        text, is_backing = lrc_words[lrc_idx]
+        entry = {"word": text, "start": start, "end": end}
+        if is_backing:
+            entry["backing"] = True
+        return entry
+
+    # difflib alignment — compare text only (not backing flag)
     w_norm = [w["word"].lower().rstrip('.,!?;:') for w in whisper_words]
-    l_norm = [w.lower() for w in lrc_words]
+    l_norm = [w[0].lower() for w in lrc_words]
 
     matcher = difflib.SequenceMatcher(None, w_norm, l_norm)
     merged = []
@@ -268,11 +281,7 @@ def merge_lrc_with_whisper(lrc_text, whisper_words):
     for op, w_start, w_end, l_start, l_end in matcher.get_opcodes():
         if op == 'equal':
             for i, j in zip(range(w_start, w_end), range(l_start, l_end)):
-                merged.append({
-                    "word": lrc_words[j],
-                    "start": whisper_words[i]["start"],
-                    "end": whisper_words[i]["end"],
-                })
+                merged.append(make_word(j, whisper_words[i]["start"], whisper_words[i]["end"]))
         elif op == 'replace':
             t_start = whisper_words[w_start]["start"]
             t_end = whisper_words[w_end - 1]["end"]
@@ -281,25 +290,41 @@ def merge_lrc_with_whisper(lrc_text, whisper_words):
             for k in range(l_count):
                 frac_start = k / l_count
                 frac_end = (k + 1) / l_count
-                merged.append({
-                    "word": lrc_words[l_start + k],
-                    "start": round(t_start + t_span * frac_start, 2),
-                    "end": round(t_start + t_span * frac_end, 2),
-                })
+                merged.append(make_word(
+                    l_start + k,
+                    round(t_start + t_span * frac_start, 2),
+                    round(t_start + t_span * frac_end, 2),
+                ))
         elif op == 'insert':
             t = merged[-1]["end"] if merged else 0
             for k in range(l_start, l_end):
-                merged.append({
-                    "word": lrc_words[k],
-                    "start": round(t, 2),
-                    "end": round(t + 0.2, 2),
-                })
+                merged.append(make_word(k, round(t, 2), round(t + 0.2, 2)))
+                t += 0.2
                 t += 0.2
         elif op == 'delete':
             for i in range(w_start, w_end):
                 merged.append(whisper_words[i].copy())
 
     return merged
+
+
+def tighten_timings(words, max_gap=0.3):
+    """Убираем паузы между словами — растягиваем end до start следующего.
+
+    В пении слова идут слитно, но Whisper ставит зазоры как в речи.
+    max_gap: если пауза > этого (секунды), считаем это реальной паузой
+    (проигрыш, вдох) и не трогаем.
+    """
+    if len(words) < 2:
+        return words
+
+    for i in range(len(words) - 1):
+        gap = words[i + 1]["start"] - words[i]["end"]
+        if 0 < gap <= max_gap:
+            # Маленький зазор — растягиваем слово до следующего
+            words[i]["end"] = words[i + 1]["start"]
+
+    return words
 
 
 # --- Upload ---
@@ -399,11 +424,12 @@ def process_track_by_query(query):
         if lrc_raw:
             print(f"    LRC: найден ({len(parse_lrc(lrc_raw))} строк)")
             words = merge_lrc_with_whisper(lrc_raw, whisper_words)
+            words = tighten_timings(words)
             lyrics_source = "yandex_lrc+whisper"
-            print(f"    Merge: {len(words)} слов (LRC текст + Whisper тайминги)")
+            print(f"    Merge: {len(words)} слов (LRC текст + Whisper тайминги, сжатые)")
         else:
             print(f"    LRC: не найден, используем Whisper как есть")
-            words = whisper_words
+            words = tighten_timings(whisper_words)
             lyrics_source = "whisper"
 
         # 5. Upload
@@ -462,10 +488,11 @@ def process_track_by_id(track_id):
         if lrc_raw:
             print(f"    LRC: найден ({len(parse_lrc(lrc_raw))} строк)")
             words = merge_lrc_with_whisper(lrc_raw, whisper_words)
+            words = tighten_timings(words)
             lyrics_source = "yandex_lrc+whisper"
-            print(f"    Merge: {len(words)} слов")
+            print(f"    Merge: {len(words)} слов (сжатые)")
         else:
-            words = whisper_words
+            words = tighten_timings(whisper_words)
             lyrics_source = "whisper"
 
         mp3_path = OUTPUT_DIR / f"{slug}.mp3"

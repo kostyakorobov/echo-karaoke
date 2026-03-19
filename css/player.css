@@ -98,11 +98,19 @@ body {
     transition: opacity 0.1s;
 }
 .line {
-    font-size: 48px; font-weight: 700; line-height: 1.5;
+    font-size: 48px; font-weight: 700; line-height: 1.4;
     text-align: center; max-width: 900px;
     transition: opacity 0.8s ease;
+    min-height: 67px;
 }
 .line.active { opacity: 1; }
+.line.next {
+    font-size: 32px;
+    color: #404040;
+    font-weight: 600;
+    margin-top: 12px;
+    min-height: 45px;
+}
 
 /* --- Words --- */
 .word { display: inline; position: relative; color: #666666; }
@@ -114,6 +122,21 @@ body {
     -webkit-text-fill-color: transparent;
     text-shadow: none;
     filter: drop-shadow(0 0 40px rgba(168, 85, 247, calc(0.7 * var(--fill-num))));
+}
+
+/* --- Back vocal --- */
+.word.backing {
+    font-size: 0.7em;
+    color: #525252;
+    font-style: italic;
+}
+.word.backing.sung { color: #737373; }
+.word.backing.now {
+    color: #525252;
+    background: linear-gradient(90deg, #a3a3a3 var(--fill), #525252 var(--fill));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: none;
 }
 
 /* --- Singer name --- */
