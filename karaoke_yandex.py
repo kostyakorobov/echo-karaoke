@@ -300,7 +300,6 @@ def merge_lrc_with_whisper(lrc_text, whisper_words):
             for k in range(l_start, l_end):
                 merged.append(make_word(k, round(t, 2), round(t + 0.2, 2)))
                 t += 0.2
-                t += 0.2
         elif op == 'delete':
             for i in range(w_start, w_end):
                 merged.append(whisper_words[i].copy())
