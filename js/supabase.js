@@ -69,3 +69,28 @@ export function broadcastState(state) {
         payload: { state }
     });
 }
+
+export async function getAllSongs() {
+    const { data } = await sb.from('karaoke_songs')
+        .select('id, title, artist')
+        .order('artist', { ascending: true });
+    return data || [];
+}
+
+export async function searchSongsDB(query) {
+    const q = query.replace(/[%_\\]/g, '\\$&');
+    const { data } = await sb.from('karaoke_songs')
+        .select('id, title, artist')
+        .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
+        .order('artist', { ascending: true })
+        .limit(20);
+    return data || [];
+}
+
+export async function addSongToQueue(songId, userName) {
+    await sb.rpc('karaoke_queue_add', {
+        p_room_id: ROOM_ID,
+        p_song_id: songId,
+        p_user_name: userName || null
+    });
+}
