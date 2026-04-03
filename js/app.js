@@ -1,8 +1,15 @@
-import { ROOM_ID } from './config.js';
-import { sb, cmdChannel, getSongById, getSongMeta, getFirstSong, getNextWaiting, getQueueWaiting, getCurrentPlaying, getLastDone, setQueueStatus, broadcastState } from './supabase.js';
+import { ROOM_ID, VIDEO_URL } from './config.js';
+import { sb, cmdChannel, getSongById, getSongMeta, getNextWaiting, getQueueWaiting, getCurrentPlaying, getLastDone, setQueueStatus, broadcastState } from './supabase.js';
 import { parseWords, clearLyrics, getLines, isInterludeVisible, renderLine, renderNextLine, findCurrentLineIdx, updateInterlude, hideInterlude } from './lyrics.js';
 import { initFx, initCongratsFx } from './fx.js';
 import { showCongrats, hideCongrats, showCountdown } from './congrats.js';
+import { initBrowse, showBrowse, hideBrowse, isBrowseVisible, refreshBrowseQueue } from './browse.js';
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
 
 const audio = document.getElementById('audio');
 let currentSong = null;
@@ -13,25 +20,30 @@ let skipping = false;
 let goingBack = false;
 
 // --- Toast ---
-function showPlayerToast(title, artist, userName) {
+function showPlayerToast(title, detail, type = '') {
     document.getElementById('toastSong').textContent = title;
-    document.getElementById('toastDetail').textContent =
-        (artist ? artist + ' — ' : '') + (userName ? `Поёт: ${userName}` : '');
+    document.getElementById('toastDetail').textContent = detail;
     const toast = document.getElementById('playerToast');
-    toast.classList.add('show');
+    toast.className = 'player-toast show' + (type ? ' ' + type : '');
+    const label = document.getElementById('toastLabel');
+    if (label) {
+        if (type === 'error') label.textContent = 'Ошибка';
+        else if (type === 'warning') label.textContent = 'Внимание';
+        else label.textContent = 'Добавлено в очередь';
+    }
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), type === 'error' ? 5000 : 4000);
 }
 
-// --- Queue display ---
+// --- Queue display (karaoke screen header) ---
 async function updateQueueDisplay() {
     const items = await getQueueWaiting(5);
     const container = document.getElementById('queueList');
     if (!items.length) { container.innerHTML = ''; return; }
     container.innerHTML = items.map((item, i) => {
-        const title = item.karaoke_songs?.title || '—';
-        const artist = item.karaoke_songs?.artist || '';
-        const singer = item.user_name || '';
+        const title = esc(item.karaoke_songs?.title || '—');
+        const artist = esc(item.karaoke_songs?.artist || '');
+        const singer = esc(item.user_name || '');
         return `<div class="queue-list-item">` +
             `<span class="q-pos">${i + 1}.</span>` +
             `<span class="q-song">${artist} — ${title}</span>` +
@@ -40,25 +52,48 @@ async function updateQueueDisplay() {
     }).join('');
 }
 
+// --- Show karaoke screen ---
+function showKaraoke() {
+    hideBrowse();
+    document.getElementById('karaokeScreen').classList.remove('hidden');
+}
+
+// --- Go to browse (new idle) ---
+async function goToBrowse() {
+    document.getElementById('karaokeScreen').classList.add('hidden');
+    currentSong = null;
+    clearLyrics();
+    await showBrowse();
+}
+
 // --- Load song ---
 async function loadSong(songId, userName) {
     const song = await getSongById(songId);
     if (!song) return;
 
+    showKaraoke();
     currentSong = song;
     lastSingerName = userName || '';
     audio.src = song.audio_path;
     document.getElementById('title').textContent = song.title;
     document.getElementById('nowDot').style.display = '';
-    const metaParts = [song.artist];
-    if (userName) metaParts.push(`<span class="singer-name">${userName}</span>`);
+    const metaParts = [esc(song.artist)];
+    if (userName) metaParts.push(`<span class="singer-name">${esc(userName)}</span>`);
     document.getElementById('nowMeta').innerHTML = metaParts.join(' · ');
     document.getElementById('singer').innerHTML = userName
-        ? `Поёт: <span>${userName}</span>` : '';
+        ? `Поёт: <span>${esc(userName)}</span>` : '';
 
     parseWords(song);
 
-    document.getElementById('idle').classList.add('hidden');
+    // Auto-skip on load failure (8s timeout)
+    const loadTimeout = setTimeout(() => {
+        if (audio.readyState < 2) {
+            showPlayerToast('Песня недоступна', 'Переходим к следующей', 'error');
+            setTimeout(() => skipToNext(), 2000);
+        }
+    }, 8000);
+    audio.addEventListener('canplay', () => clearTimeout(loadTimeout), { once: true });
+
     try {
         await audio.play();
         document.getElementById('iPlay').style.display = 'none';
@@ -84,20 +119,6 @@ async function checkQueue() {
     } finally { checkingQueue = false; }
 }
 
-// --- Go to idle ---
-function goToIdle() {
-    document.getElementById('idle').classList.remove('hidden');
-    document.getElementById('idleStatus').textContent = 'Очередь пуста';
-    document.getElementById('iPlay').style.display = '';
-    document.getElementById('iPause').style.display = 'none';
-    document.getElementById('title').textContent = '—';
-    document.getElementById('nowMeta').innerHTML = '';
-    document.getElementById('nowDot').style.display = 'none';
-    document.getElementById('queueList').innerHTML = '';
-    currentSong = null;
-    clearLyrics();
-}
-
 // --- Skip ---
 async function skipToNext() {
     if (skipping) return;
@@ -120,7 +141,7 @@ async function skipToNext() {
         await setQueueStatus(next.id, 'playing');
         await loadSong(next.song_id, next.user_name);
     } else {
-        goToIdle();
+        goToBrowse();
     }
     updateQueueDisplay();
     skipping = false;
@@ -169,7 +190,7 @@ audio.addEventListener('ended', async () => {
     } else {
         await new Promise(r => setTimeout(r, 5000));
         hideCongrats();
-        goToIdle();
+        goToBrowse();
     }
     updateQueueDisplay();
 });
@@ -179,26 +200,44 @@ audio.addEventListener('play', () => broadcastState('playing'));
 audio.addEventListener('pause', () => broadcastState('paused'));
 audio.addEventListener('ended', () => broadcastState('ended'));
 
-// --- Realtime ---
-sb.channel('karaoke_queue_changes')
+// --- Realtime queue changes ---
+// --- Connection status ---
+const queueDot = document.querySelector('.queue-dot');
+const queueChannel = sb.channel('karaoke_queue_changes');
+
+queueChannel.on('system', {}, ({ status }) => {
+    if (queueDot) {
+        queueDot.className = 'queue-dot ' + (
+            status === 'SUBSCRIBED' ? 'connected' :
+            status === 'CHANNEL_ERROR' ? 'disconnected' : 'reconnecting'
+        );
+    }
+});
+
+queueChannel
     .on('postgres_changes', {
         event: 'INSERT', schema: 'public',
         table: 'karaoke_queue', filter: `room_id=eq.${ROOM_ID}`
     }, async (payload) => {
         const row = payload.new;
         const song = await getSongMeta(row.song_id);
-        if (song) showPlayerToast(song.title, song.artist, row.user_name);
+        if (song) showPlayerToast(song.title, (song.artist ? song.artist + ' — ' : '') + (row.user_name ? `Поёт: ${row.user_name}` : ''));
         updateQueueDisplay();
-        if (!currentSong) checkQueue();
+        refreshBrowseQueue();
+        if (!currentSong && !isBrowseVisible()) checkQueue();
+        if (!currentSong && isBrowseVisible()) {
+            // Auto-start if someone adds from mobile remote
+            checkQueue();
+        }
     })
     .on('postgres_changes', {
         event: 'UPDATE', schema: 'public',
         table: 'karaoke_queue', filter: `room_id=eq.${ROOM_ID}`
-    }, () => { updateQueueDisplay(); })
+    }, () => { updateQueueDisplay(); refreshBrowseQueue(); })
     .on('postgres_changes', {
         event: 'DELETE', schema: 'public',
         table: 'karaoke_queue', filter: `room_id=eq.${ROOM_ID}`
-    }, () => { updateQueueDisplay(); })
+    }, () => { updateQueueDisplay(); refreshBrowseQueue(); })
     .subscribe();
 
 // --- Remote commands ---
@@ -208,7 +247,6 @@ cmdChannel.on('broadcast', { event: 'player_command' }, ({ payload }) => {
         case 'play':
             if (audio.paused && currentSong) {
                 audio.play();
-                document.getElementById('idle').classList.add('hidden');
                 document.getElementById('iPlay').style.display = 'none';
                 document.getElementById('iPause').style.display = '';
             }
@@ -231,14 +269,11 @@ cmdChannel.on('broadcast', { event: 'player_command' }, ({ payload }) => {
 // --- Controls ---
 document.getElementById('play').onclick = async () => {
     if (audio.paused) {
-        if (!currentSong) {
-            const song = await getFirstSong();
-            if (song) { await loadSong(song.id, null); return; }
+        if (currentSong) {
+            audio.play();
+            document.getElementById('iPlay').style.display = 'none';
+            document.getElementById('iPause').style.display = '';
         }
-        audio.play();
-        document.getElementById('idle').classList.add('hidden');
-        document.getElementById('iPlay').style.display = 'none';
-        document.getElementById('iPause').style.display = '';
     } else {
         audio.pause();
         document.getElementById('iPlay').style.display = '';
@@ -252,6 +287,7 @@ document.getElementById('bar').onclick = (e) => {
     audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration;
 };
 document.addEventListener('keydown', (e) => {
+    if (isBrowseVisible()) return; // browse.js handles keys in browse mode
     if (e.code === 'Space') { e.preventDefault(); document.getElementById('play').click(); }
     if (e.code === 'ArrowRight') audio.currentTime += 5;
     if (e.code === 'ArrowLeft') audio.currentTime = Math.max(0, audio.currentTime - 5);
@@ -272,14 +308,25 @@ function tick() {
     updateInterlude(t, audio.paused);
     const lines = getLines();
     if (lines.length > 0) {
+        const line0 = document.getElementById('line0');
         const line1 = document.getElementById('line1');
         const line2 = document.getElementById('line2');
         if (!isInterludeVisible() || line1.style.opacity !== '0') {
-            const idx = findCurrentLineIdx(t);
+            let idx = findCurrentLineIdx(t);
+            // During interlude, preview the upcoming line (not the already-sung one)
+            // But only bump ONCE — if findCurrentLineIdx already returned the next line
+            // (via look-ahead), don't double-bump
+            if (isInterludeVisible() && idx + 1 < lines.length) {
+                const lastWordEnd = lines[idx][lines[idx].length - 1].end;
+                if (t > lastWordEnd + 1) {
+                    idx = idx + 1;
+                }
+            }
+            renderNextLine(line0, idx > 0 ? lines[idx - 1] : null);
             renderLine(line1, lines[idx] || null, t);
-            // Next line preview
             renderNextLine(line2, lines[idx + 1] || null);
         } else {
+            line0.innerHTML = '';
             line1.innerHTML = '';
             line2.innerHTML = '';
         }
@@ -287,23 +334,56 @@ function tick() {
     requestAnimationFrame(tick);
 }
 
+// --- Video pre-roll ---
+async function playVideo() {
+    if (!VIDEO_URL) return;
+
+    const overlay = document.getElementById('videoOverlay');
+    const video = document.getElementById('promoVideo');
+    const skipBtn = document.getElementById('videoSkip');
+
+    video.src = VIDEO_URL;
+    overlay.classList.remove('hidden');
+
+    return new Promise(resolve => {
+        video.play().catch(() => { resolve(); });
+        video.onended = () => {
+            overlay.classList.add('hidden');
+            resolve();
+        };
+        skipBtn.onclick = () => {
+            video.pause();
+            overlay.classList.add('hidden');
+            resolve();
+        };
+    });
+}
+
 // --- Splash ---
+document.getElementById('browseRoom').textContent = ROOM_ID;
 document.getElementById('roomId').textContent = ROOM_ID;
 
 document.getElementById('splashBtn').onclick = async () => {
+    // Unlock autoplay
     const silence = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
     try { await silence.play(); } catch(e) {}
     document.getElementById('splash').classList.add('hidden');
 
+    // Init effects
     initFx();
     initCongratsFx();
 
-    const first = await getFirstSong();
-    if (first) {
-        document.getElementById('idleStatus').textContent = '1 трек в базе — нажмите Play';
-    }
+    // Init browse with callback for when a song is selected
+    initBrowse(() => checkQueue());
+
+    // Play pre-roll video if configured
+    await playVideo();
+
+    // Show browse catalog
+    await showBrowse();
+
+    // Check if there's already something in queue
     checkQueue();
-    updateQueueDisplay();
 };
 
 requestAnimationFrame(tick);

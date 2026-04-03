@@ -3,6 +3,7 @@ import { WORDS_PER_LINE, INTERLUDE_THRESHOLD, LYRICS_PREVIEW_SECS } from './conf
 let lines = [];
 let allWords = [];
 let interludeVisible = false;
+let interludeShowTime = 0; // when the interlude overlay appeared
 
 /**
  * Parse words into lines.
@@ -17,22 +18,36 @@ export function parseWords(song) {
 
     if (words.length === 0) return { lines, allWords };
 
-    // Smart line breaking: detect phrase boundaries by timing gaps
+    // Check if words have line_break markers (from LRC-based pipeline v4)
+    const hasLineBreaks = words.some(w => w.line_break);
+
     let currentLine = [words[0]];
-    const LINE_GAP = 0.8; // seconds — gap that signals a new phrase
-    const MAX_WORDS = 10; // max words per line to prevent overflow
 
-    for (let i = 1; i < words.length; i++) {
-        const gap = words[i].start - words[i - 1].end;
-        const tooLong = currentLine.length >= MAX_WORDS;
-
-        if (gap > LINE_GAP || tooLong) {
-            lines.push(currentLine);
-            currentLine = [words[i]];
-        } else {
-            currentLine.push(words[i]);
+    if (hasLineBreaks) {
+        // Use LRC line structure — each line_break:true marks end of a phrase
+        for (let i = 1; i < words.length; i++) {
+            if (words[i - 1].line_break) {
+                lines.push(currentLine);
+                currentLine = [words[i]];
+            } else {
+                currentLine.push(words[i]);
+            }
+        }
+    } else {
+        // Fallback: detect phrase boundaries by timing gaps (old tracks)
+        const LINE_GAP = 0.8;
+        const MAX_WORDS = 10;
+        for (let i = 1; i < words.length; i++) {
+            const gap = words[i].start - words[i - 1].end;
+            if (gap > LINE_GAP || currentLine.length >= MAX_WORDS) {
+                lines.push(currentLine);
+                currentLine = [words[i]];
+            } else {
+                currentLine.push(words[i]);
+            }
         }
     }
+
     if (currentLine.length > 0) {
         lines.push(currentLine);
     }
@@ -86,7 +101,14 @@ export function renderNextLine(el, lineWords) {
 
 export function findCurrentLineIdx(t) {
     for (let i = lines.length - 1; i >= 0; i--) {
-        if (t >= lines[i][0].start - 0.3) return i;
+        if (t >= lines[i][0].start - 0.6) {
+            // Don't switch if previous line's last word is still being sung
+            if (i > 0) {
+                const prevLastWord = lines[i - 1][lines[i - 1].length - 1];
+                if (t < prevLastWord.end) return i - 1;
+            }
+            return i;
+        }
     }
     return 0;
 }
@@ -96,13 +118,15 @@ export function findCurrentLineIdx(t) {
 function findGap(t) {
     if (allWords.length === 0) return null;
     if (t < allWords[0].start) {
-        return { gapStart: 0, nextWordStart: allWords[0].start, gapTotal: allWords[0].start };
+        return { gapStart: 0, nextWordStart: allWords[0].start, gapTotal: allWords[0].start, betweenLines: true };
     }
     for (let i = 0; i < allWords.length - 1; i++) {
         if (t >= allWords[i].end && t < allWords[i + 1].start) {
             const gs = allWords[i].end;
             const ns = allWords[i + 1].start;
-            return { gapStart: gs, nextWordStart: ns, gapTotal: ns - gs };
+            // Gap between lines (line_break) vs gap within a line (mid-line pause)
+            const betweenLines = !!allWords[i].line_break;
+            return { gapStart: gs, nextWordStart: ns, gapTotal: ns - gs, betweenLines };
         }
     }
     return null;
@@ -121,6 +145,14 @@ export function updateInterlude(t, audioPaused) {
         return;
     }
 
+    // Safety net: mid-line gaps (no line_break) skip interlude.
+    // Pipeline splits these in data, but this protects old/unprocessed tracks.
+    if (!gap.betweenLines) {
+        if (interludeVisible) hideInterlude();
+        return;
+    }
+
+
     const secsLeft = gap.nextWordStart - t;
     if (secsLeft < 0.5) {
         if (interludeVisible) hideInterlude();
@@ -134,8 +166,10 @@ export function updateInterlude(t, audioPaused) {
     const line1 = document.getElementById('line1');
     const line2 = document.getElementById('line2');
 
-    const elapsed = t - gap.gapStart;
-    const progress = Math.min(1, elapsed / gap.gapTotal);
+    // Progress from when overlay appeared (not from gap start, which may be earlier)
+    const visibleDuration = gap.nextWordStart - interludeShowTime;
+    const visibleElapsed = t - interludeShowTime;
+    const progress = visibleDuration > 0 ? Math.min(1, visibleElapsed / visibleDuration) : 0;
     ring.style.strokeDashoffset = (440 * (1 - progress)).toFixed(0);
 
     timer.textContent = Math.ceil(secsLeft);
@@ -152,15 +186,25 @@ export function updateInterlude(t, audioPaused) {
         timer.style.opacity = '1';
     }
 
-    if (secsLeft > LYRICS_PREVIEW_SECS) {
-        line1.style.opacity = '0';
-        line2.style.opacity = '0';
-    } else {
-        line1.style.opacity = '1';
-        line2.style.opacity = '1';
+    const line0 = document.getElementById('line0');
+    // If gap is within a line (mid-line pause like instrumental break),
+    // show the countdown but keep lyrics visible so the singer doesn't lose their place
+    if (gap.betweenLines) {
+        if (secsLeft > LYRICS_PREVIEW_SECS) {
+            line0.style.opacity = '0';
+            line1.style.opacity = '0';
+            line2.style.opacity = '0';
+        } else {
+            line0.style.opacity = '';
+            line1.style.opacity = '1';
+            line2.style.opacity = '';
+        }
     }
+    // Mid-line gap: keep lyrics visible, just show the countdown overlay
 
     if (!interludeVisible) {
+        interludeShowTime = t;
+        ring.style.strokeDashoffset = '440';
         el.classList.add('visible');
         interludeVisible = true;
     }
@@ -169,7 +213,9 @@ export function updateInterlude(t, audioPaused) {
 export function hideInterlude() {
     document.getElementById('interlude').classList.remove('visible');
     document.getElementById('interludeCountdown').classList.remove('visible');
+    document.getElementById('interludeRing').style.strokeDashoffset = '440';
+    document.getElementById('line0').style.opacity = '';
     document.getElementById('line1').style.opacity = '1';
-    document.getElementById('line2').style.opacity = '1';
+    document.getElementById('line2').style.opacity = '';
     interludeVisible = false;
 }

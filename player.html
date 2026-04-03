@@ -5,111 +5,153 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0a0a0a">
     <title>Эхо Караоке — Плеер</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700,800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/player.css">
     <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 </head>
 <body>
-    <!-- Splash: tap to unlock autoplay and start -->
+    <!-- 1. Splash: tap to unlock autoplay and start -->
     <div class="splash" id="splash">
         <h1>ЭХО</h1>
         <div class="splash-sub">караоке</div>
-        <button class="splash-btn" id="splashBtn">Начать</button>
+        <button class="splash-btn" id="splashBtn">Начать петь</button>
     </div>
 
-    <div class="header">
-        <div class="logo">ЭХО.КАРАОКЕ</div>
-        <div class="queue-badge">
-            <div class="queue-dot"></div>
-            <span id="roomId">Зал не выбран</span>
-        </div>
-        <div class="now-queue" id="nowQueue">
-            <div class="now-current">
-                <div class="now-dot" id="nowDot" style="display:none"></div>
-                <div class="now-title" id="title">—</div>
-            </div>
-            <div class="now-meta" id="nowMeta"></div>
-            <div class="queue-list" id="queueList"></div>
-        </div>
+    <!-- 2. Pre-roll video -->
+    <div class="video-overlay hidden" id="videoOverlay">
+        <video class="video-player" id="promoVideo" playsinline></video>
+        <button class="video-skip" id="videoSkip">Пропустить</button>
     </div>
 
-    <div class="lyrics-area">
-        <canvas class="fx-canvas" id="fxCanvas"></canvas>
-        <div class="reactive-glow" id="reactiveGlow"></div>
-        <div class="idle" id="idle">
-            <h1>ЭХО</h1>
-            <p>Ожидание треков в очереди...</p>
-            <div class="waiting" id="idleStatus"></div>
+    <!-- 3. Browse / Song catalog -->
+    <div class="browse-screen hidden" id="browseScreen">
+        <div class="browse-header">
+            <div class="browse-logo">ЭХО.КАРАОКЕ</div>
+            <div class="browse-room" id="browseRoom"></div>
         </div>
-        <div class="line active" id="line1"></div>
-        <div class="line next" id="line2"></div>
-        <div class="singer" id="singer"></div>
-
-        <!-- Interlude overlay (intro + between verses) -->
-        <div class="interlude" id="interlude">
-            <div class="interlude-ring">
-                <svg viewBox="0 0 146 146">
-                    <defs>
-                        <linearGradient id="interludeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stop-color="#a855f7"/>
-                            <stop offset="100%" stop-color="#ec4899"/>
-                        </linearGradient>
-                    </defs>
-                    <circle class="progress-ring" id="interludeRing" cx="73" cy="73" r="70"
-                            stroke-dasharray="440" stroke-dashoffset="440"/>
-                </svg>
-                <div class="interlude-timer" id="interludeTimer"></div>
+        <div class="browse-body">
+            <div class="browse-catalog">
+                <div class="browse-catalog-title">Выберите песню</div>
+                <div class="browse-counter" id="browseCounter"></div>
+                <div class="browse-list" id="browseList"></div>
+                <div class="browse-hints">
+                    <span>&#9650;&#9660; Выбрать</span>
+                    <span>OK Спеть</span>
+                    <span>QR Пульт с телефона</span>
+                </div>
             </div>
-            <div class="interlude-countdown" id="interludeCountdown"></div>
-        </div>
-
-        <!-- Congrats overlay -->
-        <div class="overlay-screen" id="congratsScreen">
-            <canvas class="fx-canvas" id="congratsCanvas" style="z-index:0;"></canvas>
-            <div class="congrats-emoji" id="congratsEmoji" style="position:relative;z-index:1;"></div>
-            <div class="congrats-singer" id="congratsSinger" style="position:relative;z-index:1;"></div>
-            <div class="congrats-song" id="congratsSong" style="position:relative;z-index:1;"></div>
-            <div class="congrats-label" style="position:relative;z-index:1;">Отличное выступление!</div>
-        </div>
-
-        <!-- Countdown overlay -->
-        <div class="overlay-screen" id="countdownScreen">
-            <div class="countdown-number" id="countdownNumber"></div>
-            <div class="countdown-next-label">Следующая песня</div>
-            <div class="countdown-next-song" id="countdownSong"></div>
-            <div class="countdown-next-artist" id="countdownArtist"></div>
-            <div class="countdown-next-singer" id="countdownSinger"></div>
-            <div class="countdown-handoff" id="countdownHandoff"></div>
+            <div class="browse-sidebar">
+                <div class="browse-qr-wrap">
+                    <div class="browse-qr" id="browseQr"></div>
+                    <div class="browse-qr-label" id="browseQrLabel">Сканируйте для пульта</div>
+                </div>
+                <div class="browse-queue-wrap">
+                    <div class="browse-queue-title">Очередь</div>
+                    <div class="browse-queue" id="browseQueue">
+                        <div class="browse-queue-empty">Очередь пуста</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Toast for queue additions -->
-    <div class="player-toast" id="playerToast">
-        <div class="player-toast-label">Добавлено в очередь</div>
-        <div class="player-toast-song" id="toastSong"></div>
-        <div class="player-toast-detail" id="toastDetail"></div>
-    </div>
-
-    <div class="controls">
-        <div class="progress-wrap">
-            <div class="progress-bar" id="bar">
-                <div class="progress-fill" id="fill"></div>
+    <!-- 4. Karaoke player -->
+    <div class="karaoke-screen hidden" id="karaokeScreen">
+        <div class="header">
+            <div class="logo">ЭХО.КАРАОКЕ</div>
+            <div class="queue-badge">
+                <div class="queue-dot"></div>
+                <span id="roomId">Зал не выбран</span>
             </div>
-            <div class="time-row">
-                <span id="cur">0:00</span>
-                <span id="dur">0:00</span>
+            <div class="now-queue" id="nowQueue">
+                <div class="now-current">
+                    <div class="now-dot" id="nowDot" style="display:none"></div>
+                    <div class="now-title" id="title">—</div>
+                </div>
+                <div class="now-meta" id="nowMeta"></div>
+                <div class="queue-list" id="queueList"></div>
             </div>
         </div>
-        <div class="buttons">
-            <button class="btn" id="restart">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-            </button>
-            <button class="btn btn-play" id="play">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" id="iPlay"><polygon points="9,5 20,12 9,19"/></svg>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" id="iPause" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-            </button>
-            <button class="btn" id="skip">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-            </button>
+
+        <div class="lyrics-area">
+            <canvas class="fx-canvas" id="fxCanvas"></canvas>
+            <div class="reactive-glow" id="reactiveGlow"></div>
+            <div class="line prev" id="line0"></div>
+            <div class="line active" id="line1"></div>
+            <div class="line next" id="line2"></div>
+            <div class="singer" id="singer"></div>
+
+            <!-- Interlude overlay -->
+            <div class="interlude" id="interlude">
+                <div class="interlude-ring">
+                    <svg viewBox="0 0 146 146">
+                        <defs>
+                            <linearGradient id="interludeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#a855f7"/>
+                                <stop offset="100%" stop-color="#ec4899"/>
+                            </linearGradient>
+                        </defs>
+                        <circle class="progress-ring" id="interludeRing" cx="73" cy="73" r="70"
+                                stroke-dasharray="440" stroke-dashoffset="440"/>
+                    </svg>
+                    <div class="interlude-timer" id="interludeTimer"></div>
+                </div>
+                <div class="interlude-countdown" id="interludeCountdown"></div>
+            </div>
+
+            <!-- Congrats overlay -->
+            <div class="overlay-screen" id="congratsScreen">
+                <canvas class="fx-canvas" id="congratsCanvas" style="z-index:0;"></canvas>
+                <div class="congrats-emoji" id="congratsEmoji" style="position:relative;z-index:1;"></div>
+                <div class="congrats-singer" id="congratsSinger" style="position:relative;z-index:1;"></div>
+                <div class="congrats-song" id="congratsSong" style="position:relative;z-index:1;"></div>
+                <div class="congrats-label" style="position:relative;z-index:1;">Отличное выступление!</div>
+            </div>
+
+            <!-- Countdown overlay -->
+            <div class="overlay-screen" id="countdownScreen">
+                <div class="countdown-number" id="countdownNumber"></div>
+                <div class="countdown-next-label">Следующая песня</div>
+                <div class="countdown-next-song" id="countdownSong"></div>
+                <div class="countdown-next-artist" id="countdownArtist"></div>
+                <div class="countdown-next-singer" id="countdownSinger"></div>
+                <div class="countdown-handoff" id="countdownHandoff"></div>
+            </div>
+        </div>
+
+        <!-- Toast for queue additions -->
+        <div class="player-toast" id="playerToast">
+            <div class="player-toast-label" id="toastLabel">Добавлено в очередь</div>
+            <div class="player-toast-song" id="toastSong"></div>
+            <div class="player-toast-detail" id="toastDetail"></div>
+        </div>
+
+        <div class="controls">
+            <div class="progress-wrap">
+                <div class="progress-bar" id="bar">
+                    <div class="progress-fill" id="fill"></div>
+                </div>
+                <div class="time-row">
+                    <span id="cur">0:00</span>
+                    <span id="dur">0:00</span>
+                </div>
+            </div>
+            <div class="buttons">
+                <button class="btn" id="restart">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                </button>
+                <button class="btn btn-play" id="play">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" id="iPlay"><polygon points="9,5 20,12 9,19"/></svg>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" id="iPause" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                </button>
+                <button class="btn" id="skip">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                </button>
+            </div>
         </div>
     </div>
 

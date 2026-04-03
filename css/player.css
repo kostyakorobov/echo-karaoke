@@ -3,11 +3,20 @@
 body {
     background: #0a0a0a;
     color: #fff;
-    font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     height: 100vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+.hidden { display: none !important; }
+
+/* --- Karaoke screen (wraps header + lyrics + controls) --- */
+.karaoke-screen {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
 }
 
 /* --- Header --- */
@@ -19,6 +28,7 @@ body {
     flex-shrink: 0;
 }
 .logo {
+    font-family: 'General Sans', sans-serif;
     font-size: 20px;
     font-weight: 700;
     background: linear-gradient(135deg, #a855f7, #ec4899);
@@ -56,7 +66,7 @@ body {
     padding-top: 6px;
 }
 .queue-list-item {
-    font-size: 12px; color: #525252;
+    font-size: 12px; color: #737373;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     line-height: 1.6;
 }
@@ -90,7 +100,7 @@ body {
     position: absolute; inset: 0;
     pointer-events: none; z-index: 0;
 }
-.line, .singer, .idle { position: relative; z-index: 1; }
+.line, .singer { position: relative; z-index: 1; }
 .reactive-glow {
     position: absolute; width: 700px; height: 700px;
     border-radius: 50%; pointer-events: none; z-index: 0;
@@ -98,18 +108,28 @@ body {
     transition: opacity 0.1s;
 }
 .line {
-    font-size: 48px; font-weight: 700; line-height: 1.4;
-    text-align: center; max-width: 900px;
-    transition: opacity 0.8s ease;
-    min-height: 67px;
+    font-family: 'General Sans', 'DM Sans', sans-serif;
+    font-size: 52px; font-weight: 700; line-height: 1.4;
+    text-align: center; max-width: 1000px;
+    transition: opacity 0.5s ease;
+    min-height: 73px;
+}
+.line.prev {
+    font-size: 32px;
+    color: #333333;
+    font-weight: 500;
+    margin-bottom: 16px;
+    min-height: 45px;
+    opacity: 0.4;
 }
 .line.active { opacity: 1; }
 .line.next {
-    font-size: 32px;
+    font-size: 36px;
     color: #404040;
     font-weight: 600;
-    margin-top: 12px;
-    min-height: 45px;
+    margin-top: 16px;
+    min-height: 50px;
+    opacity: 0.5;
 }
 
 /* --- Words --- */
@@ -127,12 +147,12 @@ body {
 /* --- Back vocal --- */
 .word.backing {
     font-size: 0.7em;
-    color: #525252;
+    color: #737373;
     font-style: italic;
 }
 .word.backing.sung { color: #737373; }
 .word.backing.now {
-    color: #525252;
+    color: #737373;
     background: linear-gradient(90deg, #a3a3a3 var(--fill), #525252 var(--fill));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -180,23 +200,6 @@ body {
 }
 .btn-play:hover { background: #d4d4d4; }
 
-/* --- Idle --- */
-.idle {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    background: #0a0a0a; z-index: 10;
-    transition: opacity 0.6s ease;
-}
-.idle.hidden { opacity: 0; pointer-events: none; }
-.idle h1 {
-    font-size: 72px; font-weight: 800;
-    background: linear-gradient(135deg, #a855f7, #ec4899);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.idle p { color: #a3a3a3; font-size: 18px; margin-top: 12px; }
-.idle .waiting { color: #c084fc; font-size: 16px; margin-top: 24px; }
-
 /* --- Splash screen --- */
 .splash {
     position: fixed; inset: 0; background: #0a0a0a; z-index: 100;
@@ -204,14 +207,14 @@ body {
     align-items: center; justify-content: center;
     cursor: pointer; transition: opacity 0.6s ease;
 }
-.splash.hidden { opacity: 0; pointer-events: none; }
 .splash h1 {
+    font-family: 'General Sans', sans-serif;
     font-size: 96px; font-weight: 800;
     background: linear-gradient(135deg, #a855f7, #ec4899);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 .splash-sub {
-    font-size: 18px; color: #525252; margin-top: 16px;
+    font-size: 18px; color: #737373; margin-top: 16px;
     letter-spacing: 4px; text-transform: uppercase;
 }
 .splash-btn {
@@ -226,6 +229,165 @@ body {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
 }
+
+/* --- Pre-roll video overlay --- */
+.video-overlay {
+    position: fixed; inset: 0; background: #000; z-index: 90;
+    display: flex; align-items: center; justify-content: center;
+}
+.video-player {
+    width: 100%; height: 100%; object-fit: contain;
+    background: #000;
+}
+.video-skip {
+    position: absolute; bottom: 40px; right: 40px;
+    padding: 12px 28px; border-radius: 30px; border: 1px solid #404040;
+    background: rgba(0, 0, 0, 0.6); color: #a3a3a3;
+    font-size: 16px; cursor: pointer;
+    transition: all 0.3s;
+    backdrop-filter: blur(8px);
+}
+.video-skip:hover { border-color: #a855f7; color: #fff; }
+
+/* --- Browse / Song catalog screen --- */
+.browse-screen {
+    position: fixed; inset: 0; background: #0a0a0a; z-index: 50;
+    display: flex; flex-direction: column;
+}
+.browse-header {
+    padding: 20px 40px;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+}
+.browse-logo {
+    font-family: 'General Sans', sans-serif;
+    font-size: 20px; font-weight: 700;
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.browse-room {
+    font-size: 13px; color: #a3a3a3;
+    padding: 4px 12px; border-radius: 20px;
+    background: #1a1a1a; border: 1px solid #262626;
+}
+
+.browse-body {
+    flex: 1; display: flex; gap: 40px;
+    padding: 0 40px 40px; min-height: 0;
+}
+
+/* Left: song catalog */
+.browse-catalog {
+    flex: 1; display: flex; flex-direction: column; min-height: 0;
+}
+.browse-catalog-title {
+    font-family: 'General Sans', sans-serif;
+    font-size: 28px; font-weight: 700; margin-bottom: 20px;
+}
+.browse-counter {
+    font-size: 13px; color: #737373; margin-bottom: 12px;
+    font-variant-numeric: tabular-nums;
+}
+.browse-list {
+    flex: 1; overflow: hidden; display: flex; flex-direction: column; gap: 4px;
+}
+.browse-item {
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 20px; border-radius: 12px;
+    border: 2px solid transparent;
+    background: #141414;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+.browse-item.selected {
+    border-color: #a855f7;
+    background: #1a1a1a;
+    box-shadow: 0 0 30px rgba(168, 85, 247, 0.15);
+}
+.browse-num {
+    width: 36px; text-align: center;
+    font-size: 14px; font-weight: 600; color: #737373;
+    flex-shrink: 0;
+}
+.browse-item.selected .browse-num { color: #a855f7; }
+.browse-info { flex: 1; min-width: 0; }
+.browse-song-title {
+    font-family: 'General Sans', sans-serif;
+    font-size: 18px; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.browse-song-artist {
+    font-size: 14px; color: #737373; margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.browse-empty {
+    color: #737373; font-size: 18px;
+    text-align: center; padding: 60px 0;
+}
+.browse-empty-icon {
+    font-size: 48px; margin-bottom: 12px; opacity: 0.5;
+}
+.browse-queue-empty {
+    color: #737373; font-size: 14px;
+    text-align: center; padding: 20px 0;
+}
+.browse-queue-empty-hint {
+    font-size: 12px; color: #a3a3a3; margin-top: 8px;
+}
+
+.browse-hints {
+    display: flex; gap: 24px; margin-top: 16px;
+    font-size: 13px; color: #737373; flex-shrink: 0;
+}
+.browse-hints span {
+    padding: 4px 12px; border-radius: 8px;
+    background: #1a1a1a; border: 1px solid #262626;
+}
+
+/* Right sidebar: QR + queue */
+.browse-sidebar {
+    width: 280px; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 24px;
+}
+.browse-qr-wrap {
+    text-align: center;
+    padding: 24px;
+    background: #141414;
+    border: 1px solid #1a1a1a;
+    border-radius: 16px;
+}
+.browse-qr {
+    display: flex; justify-content: center;
+    margin-bottom: 12px;
+}
+.browse-qr svg { border-radius: 8px; }
+.browse-qr-label {
+    font-size: 13px; color: #a3a3a3;
+}
+.qr-fallback {
+    font-size: 11px; color: #737373; word-break: break-all;
+}
+
+.browse-queue-wrap {
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column;
+}
+.browse-queue-title {
+    font-size: 14px; font-weight: 600; color: #737373;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 12px;
+}
+.browse-queue {
+    flex: 1; overflow-y: auto;
+}
+.browse-queue-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 13px;
+}
+.browse-queue-pos { color: #404040; margin-right: 6px; }
+.browse-queue-song { color: #a3a3a3; }
+.browse-queue-singer { color: #c084fc; font-size: 12px; display: block; margin-top: 2px; }
 
 /* --- Overlay screens (congrats, countdown) --- */
 .overlay-screen {
@@ -253,7 +415,7 @@ body {
 }
 .congrats-song { font-size: 20px; color: #a3a3a3; font-weight: 500; }
 .congrats-label {
-    font-size: 14px; color: #525252; margin-top: 24px;
+    font-size: 14px; color: #737373; margin-top: 24px;
     text-transform: uppercase; letter-spacing: 1px;
 }
 
@@ -270,7 +432,7 @@ body {
     100% { opacity: 1; }
 }
 .countdown-next-label {
-    font-size: 14px; color: #525252;
+    font-size: 14px; color: #737373;
     text-transform: uppercase; letter-spacing: 1px; margin-top: 32px;
 }
 .countdown-next-song { font-size: 28px; font-weight: 700; color: #fff; margin-top: 8px; }
@@ -302,7 +464,6 @@ body {
 .interlude-ring circle.progress-ring {
     fill: none; stroke: url(#interludeGrad);
     stroke-width: 3; stroke-linecap: round;
-    transition: stroke-dashoffset 0.3s ease;
 }
 .interlude-timer {
     font-size: 36px; font-weight: 700; color: #fff;
@@ -334,3 +495,10 @@ body {
 }
 .player-toast-song { font-size: 15px; font-weight: 600; color: #fff; }
 .player-toast-detail { font-size: 13px; color: #a3a3a3; margin-top: 2px; }
+.player-toast.error .player-toast-label { color: #ef4444; }
+.player-toast.warning .player-toast-label { color: #f59e0b; }
+
+/* --- Connection status --- */
+.queue-dot.connected { background: #4ade80; }
+.queue-dot.reconnecting { background: #f59e0b; animation: pulse-dot 1s infinite; }
+.queue-dot.disconnected { background: #ef4444; animation: none; }
