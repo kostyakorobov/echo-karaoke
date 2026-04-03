@@ -25,6 +25,9 @@ import time
 import re
 import difflib
 sys.stdout.reconfigure(line_buffering=True)
+
+# Fix OpenMP conflict (libomp loaded twice via torch + demucs)
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 from pathlib import Path
 from yandex_music import Client
 from yandex_music.exceptions import NotFoundError
@@ -55,8 +58,23 @@ def get_ym_client():
     global ym_client
     if ym_client is None:
         ym_client = Client(YANDEX_TOKEN).init()
+        # Increase default timeout to avoid TimedOutError
+        ym_client._request._timeout = 30
         print(f"Яндекс Музыка: авторизован как {ym_client.me.account.login}")
     return ym_client
+
+
+def with_retry(fn, retries=3, delay=5):
+    """Retry wrapper for network calls."""
+    for attempt in range(retries):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt < retries - 1:
+                print(f"    Retry {attempt + 1}/{retries}: {e}")
+                time.sleep(delay)
+            else:
+                raise
 
 
 def make_slug(artist, title):
@@ -95,7 +113,7 @@ def download_track(track, work_dir):
     mp3_path = work_dir / "original_ym.mp3"
 
     # Скачиваем MP3 320kbps
-    track.download(str(mp3_path), codec='mp3', bitrate_in_kbps=320)
+    with_retry(lambda: track.download(str(mp3_path), codec='mp3', bitrate_in_kbps=320))
     size_mb = mp3_path.stat().st_size / 1024 / 1024
     print(f"    Скачано: {size_mb:.1f} МБ (320 kbps)")
 
@@ -150,12 +168,14 @@ def get_plain_lyrics(track):
 def separate_vocals(wav_path, work_dir):
     """Demucs: вокал + инструментал."""
     print("  [2/5] Demucs: разделяю вокал...")
+    env = os.environ.copy()
+    env["KMP_DUPLICATE_LIB_OK"] = "TRUE"
     subprocess.run([
         "python3", "-m", "demucs",
         "--two-stems", "vocals", "-d", "mps",
         "-o", str(work_dir / "demucs"),
         str(wav_path)
-    ], check=True, capture_output=True)
+    ], check=True, capture_output=True, env=env)
     base = work_dir / "demucs" / "htdemucs" / "original"
     return base / "no_vocals.wav", base / "vocals.wav"
 
@@ -168,10 +188,19 @@ def get_leading_silence(wav_path):
         "-af", "silencedetect=noise=-40dB:d=0.5",
         "-f", "null", "-"
     ], capture_output=True, text=True)
+    # Parse silence_start/silence_end pairs, only use leading silence (starts near 0)
+    last_start = None
     for line in result.stderr.splitlines():
-        if "silence_end" in line:
+        if "silence_start" in line:
+            parts = line.split("silence_start:")[1].split()[0].strip()
+            last_start = float(parts)
+        elif "silence_end" in line:
             parts = line.split("silence_end:")[1].split("|")[0].strip()
-            return float(parts)
+            end = float(parts)
+            # Only count as leading silence if it starts within first 0.5s
+            if last_start is not None and last_start < 0.5:
+                return end
+            return 0.0  # First silence block isn't at the start
     return 0.0
 
 
@@ -219,20 +248,31 @@ def transcribe_groq(vocals_wav_path, language="ru"):
         )
 
     raw_words = result.words if result.words else []
+
+    # Filter out prompt leak words (Whisper sometimes includes the prompt text)
+    prompt_leak = {"песня", "на", "русском", "языке", "song", "lyrics", "in", "english", "текст"}
+
     words = []
     for w in raw_words:
         if isinstance(w, dict):
             word = w["word"].strip()
-            if word:
-                words.append({"word": word,
-                              "start": round(w["start"] + silence_offset, 2),
-                              "end": round(w["end"] + silence_offset, 2)})
+            start = w["start"]
+            end = w["end"]
         else:
             word = w.word.strip()
-            if word:
-                words.append({"word": word,
-                              "start": round(w.start + silence_offset, 2),
-                              "end": round(w.end + silence_offset, 2)})
+            start = w.start
+            end = w.end
+
+        if not word:
+            continue
+
+        # Skip prompt leak: words at the very start (< 0.5s) matching prompt tokens
+        if start < 0.5 and word.lower().rstrip('.,') in prompt_leak:
+            continue
+
+        words.append({"word": word,
+                      "start": round(start + silence_offset, 2),
+                      "end": round(end + silence_offset, 2)})
 
     print(f"    Whisper: {len(words)} слов")
     return words
@@ -240,9 +280,66 @@ def transcribe_groq(vocals_wav_path, language="ru"):
 
 # --- Merge: LRC текст + Whisper тайминги ---
 
+def words_from_lrc_lines(lrc_text):
+    """Создаём word-level тайминги из LRC line-level таймингов.
+    Распределяем слова равномерно внутри каждой строки."""
+    parsed = parse_lrc(lrc_text)
+    if not parsed:
+        return []
+
+    words = []
+    for i, (line_start, line_text) in enumerate(parsed):
+        # Определяем конец строки = начало следующей (или +3с для последней)
+        # Но ограничиваем макс. длительность строки: не более 1с на слово
+        if i + 1 < len(parsed):
+            # Оставляем 0.15с gap между строками для естественной паузы
+            line_end = parsed[i + 1][0] - 0.15
+        else:
+            line_end = line_start + 3.0
+
+        # Парсим слова с поддержкой бэк-вокала
+        in_backing = False
+        line_words = []
+        for char_group in re.split(r'(\(|\))', line_text):
+            if char_group == '(':
+                in_backing = True
+                continue
+            elif char_group == ')':
+                in_backing = False
+                continue
+            for w in char_group.split():
+                cleaned = w.strip('.,!?;:«»""—–…\'"')
+                if cleaned:
+                    line_words.append((cleaned, in_backing))
+
+        if not line_words:
+            continue
+
+        # Ограничиваем длительность строки: макс ~1с на слово
+        # (предотвращает растягивание 3 слов на 13 секунд перед проигрышем)
+        max_line_dur = len(line_words) * 1.0
+        duration = min(line_end - line_start, max_line_dur)
+        word_dur = duration / len(line_words)
+        for j, (word, is_backing) in enumerate(line_words):
+            entry = {
+                "word": word,
+                "start": round(line_start + j * word_dur, 2),
+                "end": round(line_start + (j + 1) * word_dur, 2),
+            }
+            if is_backing:
+                entry["backing"] = True
+            words.append(entry)
+
+    return words
+
+
 def merge_lrc_with_whisper(lrc_text, whisper_words):
     """Заменяем слова Whisper на текст из LRC, сохраняя word-level тайминги.
-    Бэк-вокал в скобках помечается флагом backing=True."""
+    Бэк-вокал в скобках помечается флагом backing=True.
+
+    Если Whisper распознал менее 50% слов от LRC — используем LRC line-level
+    тайминги напрямую (более надёжно, чем difflib с большими insert-блоками)."""
+
     # Собираем слова из LRC, помечая бэк-вокал
     lrc_words = []  # list of (word, is_backing)
     in_backing = False
@@ -263,6 +360,13 @@ def merge_lrc_with_whisper(lrc_text, whisper_words):
     if not lrc_words or not whisper_words:
         return whisper_words
 
+    # If Whisper recognized less than 50% of LRC words, use LRC line-level timing
+    # (difflib creates too many fake insert blocks when ratio is low)
+    ratio = len(whisper_words) / len(lrc_words)
+    if ratio < 0.5:
+        print(f"    Whisper/LRC ratio: {ratio:.1%} — используем LRC line-level тайминги")
+        return words_from_lrc_lines(lrc_text)
+
     # Helper to build word entry
     def make_word(lrc_idx, start, end):
         text, is_backing = lrc_words[lrc_idx]
@@ -276,9 +380,10 @@ def merge_lrc_with_whisper(lrc_text, whisper_words):
     l_norm = [w[0].lower() for w in lrc_words]
 
     matcher = difflib.SequenceMatcher(None, w_norm, l_norm)
+    opcodes = matcher.get_opcodes()
     merged = []
 
-    for op, w_start, w_end, l_start, l_end in matcher.get_opcodes():
+    for idx, (op, w_start, w_end, l_start, l_end) in enumerate(opcodes):
         if op == 'equal':
             for i, j in zip(range(w_start, w_end), range(l_start, l_end)):
                 merged.append(make_word(j, whisper_words[i]["start"], whisper_words[i]["end"]))
@@ -296,10 +401,26 @@ def merge_lrc_with_whisper(lrc_text, whisper_words):
                     round(t_start + t_span * frac_end, 2),
                 ))
         elif op == 'insert':
-            t = merged[-1]["end"] if merged else 0
-            for k in range(l_start, l_end):
-                merged.append(make_word(k, round(t, 2), round(t + 0.2, 2)))
-                t += 0.2
+            # Find time boundaries: previous end → next start
+            t_begin = merged[-1]["end"] if merged else 0
+            t_finish = t_begin  # default: look ahead for next whisper anchor
+            for next_op, nw_start, nw_end, _, _ in opcodes[idx + 1:]:
+                if next_op in ('equal', 'replace', 'delete') and nw_start < len(whisper_words):
+                    t_finish = whisper_words[nw_start]["start"]
+                    break
+            # If no future anchor found, estimate ~0.4s per word
+            l_count = l_end - l_start
+            if t_finish <= t_begin:
+                t_finish = t_begin + l_count * 0.4
+            t_span = t_finish - t_begin
+            for k in range(l_count):
+                frac_start = k / l_count
+                frac_end = (k + 1) / l_count
+                merged.append(make_word(
+                    l_start + k,
+                    round(t_begin + t_span * frac_start, 2),
+                    round(t_begin + t_span * frac_end, 2),
+                ))
         elif op == 'delete':
             for i in range(w_start, w_end):
                 merged.append(whisper_words[i].copy())
@@ -407,31 +528,34 @@ def process_track_by_query(query):
         print(f"  {artists} — {title}")
         print(f"  Язык: {lang}, Длительность: {duration}с, YM ID: {track.id}")
 
-        # 1. Скачиваем
-        wav_path = download_track(track, work_dir)
-
-        # 2. Demucs
-        no_vocals, vocals = separate_vocals(wav_path, work_dir)
-
-        # 3. Whisper word-level
-        whisper_words = transcribe_groq(vocals, lang)
-
-        # 4. LRC тексты
-        print("  [4/5] Яндекс Music: получаю LRC тексты...")
-        plain_text, lrc_raw = get_plain_lyrics(track)
+        # 1. LRC тексты (если есть — пропускаем Whisper)
+        print("  [1/4] Яндекс Music: LRC тексты...")
+        plain_text, lrc_raw = with_retry(lambda: get_plain_lyrics(track))
 
         if lrc_raw:
-            print(f"    LRC: найден ({len(parse_lrc(lrc_raw))} строк)")
-            words = merge_lrc_with_whisper(lrc_raw, whisper_words)
+            parsed_lines = parse_lrc(lrc_raw)
+            print(f"    LRC найден: {len(parsed_lines)} строк")
+            words = words_from_lrc_lines(lrc_raw)
             words = tighten_timings(words)
-            lyrics_source = "yandex_lrc+whisper"
-            print(f"    Merge: {len(words)} слов (LRC текст + Whisper тайминги, сжатые)")
+            lyrics_source = "yandex_lrc"
+            print(f"    {len(words)} слов (LRC line-level)")
         else:
-            print(f"    LRC: не найден, используем Whisper как есть")
+            words = None
+            lyrics_source = None
+
+        # 2. Скачиваем + Demucs
+        wav_path = download_track(track, work_dir)
+        no_vocals, vocals = separate_vocals(wav_path, work_dir)
+
+        # 3. Whisper fallback (только если нет LRC)
+        if words is None:
+            print("  [3/4] Groq Whisper (нет LRC)...")
+            whisper_words = with_retry(lambda: transcribe_groq(vocals, lang))
             words = tighten_timings(whisper_words)
             lyrics_source = "whisper"
+            print(f"    {len(words)} слов (Whisper)")
 
-        # 5. Upload
+        # 4. Upload
         mp3_path = OUTPUT_DIR / f"{slug}.mp3"
         convert_mp3(no_vocals, mp3_path)
 
@@ -454,21 +578,18 @@ def process_track_by_query(query):
 
 def process_track_by_id(track_id):
     """Обработка по ID трека Яндекс Музыки."""
-    client = get_ym_client()
-    tracks = client.tracks([track_id])
-    if not tracks:
-        print(f"  ✗ Трек {track_id} не найден")
-        return False
-
-    track = tracks[0]
-    artists = ', '.join(a.name for a in track.artists)
-    query = f"{artists} - {track.title}"
-
-    # Подменяем search на прямой track
     work_dir = TEMP_DIR / "current"
     work_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        client = get_ym_client()
+        tracks = with_retry(lambda: client.tracks([track_id]))
+        if not tracks:
+            print(f"  ✗ Трек {track_id} не найден")
+            return False
+
+        track = tracks[0]
+        artists = ', '.join(a.name for a in track.artists)
         title = track.title
         duration = (track.duration_ms or 0) // 1000
         lang = detect_language(title, artists)
@@ -477,27 +598,38 @@ def process_track_by_id(track_id):
         print(f"  {artists} — {title}")
         print(f"  Язык: {lang}, Длительность: {duration}с, YM ID: {track.id}")
 
-        wav_path = download_track(track, work_dir)
-        no_vocals, vocals = separate_vocals(wav_path, work_dir)
-        whisper_words = transcribe_groq(vocals, lang)
-
-        print("  [4/5] Яндекс Music: получаю LRC тексты...")
-        plain_text, lrc_raw = get_plain_lyrics(track)
+        # 1. LRC тексты (если есть — пропускаем Whisper)
+        print("  [1/4] Яндекс Music: LRC тексты...")
+        plain_text, lrc_raw = with_retry(lambda: get_plain_lyrics(track))
 
         if lrc_raw:
-            print(f"    LRC: найден ({len(parse_lrc(lrc_raw))} строк)")
-            words = merge_lrc_with_whisper(lrc_raw, whisper_words)
+            parsed_lines = parse_lrc(lrc_raw)
+            print(f"    LRC найден: {len(parsed_lines)} строк")
+            words = words_from_lrc_lines(lrc_raw)
             words = tighten_timings(words)
-            lyrics_source = "yandex_lrc+whisper"
-            print(f"    Merge: {len(words)} слов (сжатые)")
+            lyrics_source = "yandex_lrc"
+            print(f"    {len(words)} слов (LRC line-level)")
         else:
+            words = None
+            lyrics_source = None
+
+        # 2. Скачиваем + Demucs
+        wav_path = download_track(track, work_dir)
+        no_vocals, vocals = separate_vocals(wav_path, work_dir)
+
+        # 3. Whisper fallback (только если нет LRC)
+        if words is None:
+            print("  [3/4] Groq Whisper (нет LRC)...")
+            whisper_words = with_retry(lambda: transcribe_groq(vocals, lang))
             words = tighten_timings(whisper_words)
             lyrics_source = "whisper"
+            print(f"    {len(words)} слов (Whisper)")
 
+        # 4. Upload
         mp3_path = OUTPUT_DIR / f"{slug}.mp3"
         convert_mp3(no_vocals, mp3_path)
 
-        song_id = upload_to_supabase(mp3_path, slug, title, artists, words, duration, f"yandex:{track.id}")
+        song_id = with_retry(lambda: upload_to_supabase(mp3_path, slug, title, artists, words, duration, f"yandex:{track.id}"))
         print(f"  ✓ Готово! ID: {song_id}")
         print(f"  ✓ Слов: {len(words)}, Источник: {lyrics_source}")
         return True
@@ -529,6 +661,21 @@ def get_playlist_tracks(user_id, kind):
     return [t.track for t in playlist.tracks if t.track]
 
 
+def get_playlist_tracks_by_uuid(uuid):
+    """Получаем список треков из shared-плейлиста по UUID."""
+    client = get_ym_client()
+    result = client._request.get(f'https://api.music.yandex.net/playlist/{uuid}')
+    tracks = []
+    for t in result.get('tracks', []):
+        track_data = t.get('track')
+        if track_data:
+            track_id = str(track_data['id'])
+            artists = ', '.join(a['name'] for a in track_data.get('artists', []))
+            title = track_data.get('title', '')
+            tracks.append((track_id, artists, title))
+    return tracks
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -538,6 +685,8 @@ def main():
         print("  python3 karaoke_yandex.py \"Кино - Группа крови\" \"Руки Вверх - Крошка моя\"")
         print("  python3 karaoke_yandex.py --album ALBUM_ID")
         print("  python3 karaoke_yandex.py --playlist USER_ID:KIND")
+        print("  python3 karaoke_yandex.py --playlist UUID")
+        print("  python3 karaoke_yandex.py --playlist https://music.yandex.ru/playlists/UUID")
         print()
         print("Прогресс сохраняется — можно прервать и продолжить.")
         sys.exit(1)
@@ -558,17 +707,34 @@ def main():
         print(f"  Найдено {len(tasks)} треков")
 
     elif args[0] == '--playlist' and len(args) > 1:
-        parts = args[1].split(':')
-        if len(parts) != 2:
-            print("Формат: --playlist USER_ID:KIND")
-            sys.exit(1)
-        user_id, kind = parts
-        print(f"Загружаю плейлист {user_id}:{kind}...")
-        tracks = get_playlist_tracks(user_id, kind)
-        for t in tracks:
-            artists = ', '.join(a.name for a in t.artists)
-            tasks.append((str(t.id), f"{artists} - {t.title}"))
-        print(f"  Найдено {len(tasks)} треков")
+        playlist_arg = args[1]
+
+        # Extract UUID from URL if needed
+        url_match = re.search(r'playlists/([0-9a-f-]{36})', playlist_arg)
+        if url_match:
+            playlist_arg = url_match.group(1)
+
+        # UUID format (shared playlist)
+        uuid_match = re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', playlist_arg)
+        if uuid_match:
+            print(f"Загружаю shared-плейлист {playlist_arg}...")
+            track_list = get_playlist_tracks_by_uuid(playlist_arg)
+            for track_id, artists, title in track_list:
+                tasks.append((track_id, f"{artists} - {title}"))
+            print(f"  Найдено {len(tasks)} треков")
+        else:
+            # USER_ID:KIND format
+            parts = playlist_arg.split(':')
+            if len(parts) != 2:
+                print("Формат: --playlist USER_ID:KIND или UUID или URL")
+                sys.exit(1)
+            user_id, kind = parts
+            print(f"Загружаю плейлист {user_id}:{kind}...")
+            tracks = get_playlist_tracks(user_id, kind)
+            for t in tracks:
+                artists = ', '.join(a.name for a in t.artists)
+                tasks.append((str(t.id), f"{artists} - {t.title}"))
+            print(f"  Найдено {len(tasks)} треков")
 
     else:
         # Текстовые запросы
@@ -606,10 +772,14 @@ def main():
         print(f"{'='*60}")
 
         t0 = time.time()
-        if track_id:
-            success = process_track_by_id(track_id)
-        else:
-            success = process_track_by_query(query)
+        try:
+            if track_id:
+                success = process_track_by_id(track_id)
+            else:
+                success = process_track_by_query(query)
+        except Exception as e:
+            print(f"  ✗ Критическая ошибка: {e}")
+            success = False
 
         elapsed = time.time() - t0
         track_times.append(elapsed)
@@ -621,9 +791,9 @@ def main():
         else:
             fail += 1
 
-        # Пауза между треками чтобы не нагружать API
+        # Пауза между треками чтобы API не дросселил
         if i < total:
-            time.sleep(2)
+            time.sleep(5)
 
     total_elapsed = time.time() - batch_start
     print(f"\n{'='*60}")

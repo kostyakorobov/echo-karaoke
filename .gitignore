@@ -2,3 +2,4 @@
 karaoke_output/
 *.pyc
 __pycache__/
+.gstack/
