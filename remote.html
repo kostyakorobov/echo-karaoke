@@ -668,9 +668,10 @@
     });
 
     async function searchSongs(query) {
+        const q = query.replace(/[%_\\]/g, '\\$&');
         const { data: songs } = await sb.from('karaoke_songs')
             .select('id, title, artist')
-            .or(`title.ilike.%${query}%,artist.ilike.%${query}%`)
+            .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
             .limit(10);
 
         if (!songs || songs.length === 0) {
@@ -684,6 +685,10 @@
             songs.map(s => songCardHTML(s)).join('');
     }
 
+    function escAttr(s) {
+        return (s || '').replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
     function songCardHTML(s) {
         return `
             <div class="song-card" data-id="${s.id}">
@@ -692,7 +697,7 @@
                     <div class="song-name">${esc(s.title)}</div>
                     <div class="song-artist-name">${esc(s.artist)}</div>
                 </div>
-                <button class="song-add" onclick="window._addToQueue('${s.id}', '${esc(s.title)}')">
+                <button class="song-add" onclick="window._addToQueue('${s.id}', '${escAttr(s.title)}')">
                     Спеть
                 </button>
             </div>`;
@@ -730,20 +735,10 @@
     });
 
     async function addToQueue(songId, name) {
-        const { data: last } = await sb.from('karaoke_queue')
-            .select('position')
-            .eq('room_id', ROOM_ID)
-            .order('position', { ascending: false })
-            .limit(1);
-
-        const pos = (last && last.length > 0) ? last[0].position + 1 : 1;
-
-        await sb.from('karaoke_queue').insert({
-            room_id: ROOM_ID,
-            song_id: songId,
-            user_name: name,
-            position: pos,
-            status: 'waiting'
+        await sb.rpc('karaoke_queue_add', {
+            p_room_id: ROOM_ID,
+            p_song_id: songId,
+            p_user_name: name || null
         });
 
         // Clear search
@@ -888,7 +883,7 @@
                     <button class="queue-move" onclick="window._moveInQueue('${item.id}', -1)" title="Вверх" ${i === 0 ? 'disabled' : ''}>&#9650;</button>
                     <button class="queue-move" onclick="window._moveInQueue('${item.id}', 1)" title="Вниз" ${i === items.length - 1 ? 'disabled' : ''}>&#9660;</button>
                 </div>
-                <button class="queue-remove" onclick="window._confirmRemove('${item.id}', '${esc(item.karaoke_songs?.title || 'Песня')}')" title="Убрать">✕</button>
+                <button class="queue-remove" onclick="window._confirmRemove('${item.id}', '${escAttr(item.karaoke_songs?.title || 'Песня')}')" title="Убрать">✕</button>
             </div>
         `).join('');
     }

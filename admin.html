@@ -394,9 +394,86 @@
             color: #525252;
             cursor: default;
         }
+        /* Auth overlay */
+        .auth-overlay {
+            position: fixed;
+            inset: 0;
+            background: #0a0a0a;
+            z-index: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .auth-overlay.hidden { display: none; }
+        .auth-box {
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 16px;
+            padding: 32px;
+            width: 100%;
+            max-width: 360px;
+        }
+        .auth-box h2 {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .auth-box p {
+            font-size: 13px;
+            color: #525252;
+            margin-bottom: 20px;
+        }
+        .auth-input {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 1px solid #262626;
+            background: #0a0a0a;
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            margin-bottom: 12px;
+            transition: border-color 0.2s;
+        }
+        .auth-input:focus { border-color: #a855f7; }
+        .auth-input::placeholder { color: #525252; }
+        .auth-btn {
+            width: 100%;
+            padding: 10px;
+            border-radius: 10px;
+            border: none;
+            background: #a855f7;
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .auth-btn:hover { background: #9333ea; }
+        .auth-btn:disabled { background: #262626; color: #525252; cursor: default; }
+        .auth-error {
+            font-size: 13px;
+            color: #ef4444;
+            margin-bottom: 12px;
+            display: none;
+        }
     </style>
 </head>
 <body>
+    <!-- Auth overlay -->
+    <div class="auth-overlay" id="authOverlay">
+        <div class="auth-box">
+            <h2>ЭХО.КАРАОКЕ</h2>
+            <p>Вход в админ-панель</p>
+            <div class="auth-error" id="authError">Неверный пароль</div>
+            <input class="auth-input" id="authPassword" type="password"
+                   placeholder="Пароль" autocomplete="current-password">
+            <button class="auth-btn" id="authBtn">Войти</button>
+        </div>
+    </div>
+
     <div class="header">
         <div class="logo">ЭХО.КАРАОКЕ — АДМИНКА</div>
         <div class="header-right">
@@ -450,6 +527,56 @@
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
     let allSongs = [];
 
+    // --- Auth gate ---
+    const ADMIN_EMAIL = 'admin@echo-karaoke.local';
+
+    async function checkAuth() {
+        const { data: { session } } = await sb.auth.getSession();
+        if (session) {
+            document.getElementById('authOverlay').classList.add('hidden');
+            return true;
+        }
+        return false;
+    }
+
+    async function doLogin() {
+        const btn = document.getElementById('authBtn');
+        const errEl = document.getElementById('authError');
+        const pwd = document.getElementById('authPassword').value;
+        if (!pwd) return;
+
+        btn.disabled = true;
+        errEl.style.display = 'none';
+
+        const { error } = await sb.auth.signInWithPassword({
+            email: ADMIN_EMAIL,
+            password: pwd
+        });
+
+        btn.disabled = false;
+
+        if (error) {
+            errEl.style.display = 'block';
+            return;
+        }
+
+        document.getElementById('authOverlay').classList.add('hidden');
+        loadRooms();
+        loadCatalog();
+    }
+
+    document.getElementById('authBtn').onclick = doLogin;
+    document.getElementById('authPassword').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') doLogin();
+    });
+
+    // Check existing session
+    checkAuth().then(ok => {
+        if (!ok) {
+            document.getElementById('authPassword').focus();
+        }
+    });
+
     // --- Toast ---
     let toastTimer;
     function showToast(msg) {
@@ -464,6 +591,10 @@
         const d = document.createElement('div');
         d.textContent = s;
         return d.innerHTML;
+    }
+
+    function escAttr(s) {
+        return (s || '').replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     function fmt(s) {
@@ -538,19 +669,25 @@
     }
 
     // --- Queue actions ---
-    window._skip = async function(roomId) {
-        const { data: playing } = await sb.from('karaoke_queue')
-            .select('id')
-            .eq('room_id', roomId)
-            .eq('status', 'playing')
-            .limit(1);
-        if (playing && playing.length > 0) {
-            await sb.from('karaoke_queue')
-                .update({ status: 'done' })
-                .eq('id', playing[0].id);
-            showToast('Трек пропущен');
-            loadRooms();
+    // Broadcast channels per room (for skip command)
+    const roomChannels = {};
+    function getRoomChannel(roomId) {
+        if (!roomChannels[roomId]) {
+            roomChannels[roomId] = sb.channel(`room_commands_${roomId}`);
+            roomChannels[roomId].subscribe();
         }
+        return roomChannels[roomId];
+    }
+
+    window._skip = async function(roomId) {
+        // Send broadcast command so player skips immediately
+        getRoomChannel(roomId).send({
+            type: 'broadcast',
+            event: 'player_command',
+            payload: { command: 'skip' }
+        });
+        showToast('Трек пропущен');
+        // Player handles status update itself on skip
     };
 
     window._removeQueue = async function(queueId) {
@@ -586,7 +723,8 @@
             .order('artist', { ascending: true });
 
         if (filter) {
-            query = query.or(`title.ilike.%${filter}%,artist.ilike.%${filter}%`);
+            const f = filter.replace(/[%_\\]/g, '\\$&');
+            query = query.or(`title.ilike.%${f}%,artist.ilike.%${f}%`);
         }
 
         const { data: songs } = await query;
@@ -609,7 +747,7 @@
                 </div>
                 <div class="catalog-duration">${fmt(s.duration_sec)}</div>
                 <div class="catalog-actions">
-                    <button class="btn-sm danger" onclick="window._deleteSong('${s.id}', '${esc(s.title)}')" title="Удалить">✕</button>
+                    <button class="btn-sm danger" onclick="window._deleteSong('${s.id}', '${escAttr(s.title)}')" title="Удалить">✕</button>
                 </div>
             </div>
         `).join('');
