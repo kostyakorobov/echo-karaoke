@@ -150,12 +150,12 @@ body {
     color: #737373;
     font-style: italic;
 }
-.word.backing.sung { color: #737373; }
+.word.backing.sung { color: #a3a3a3; }
 .word.backing.now {
-    color: #737373;
-    background: linear-gradient(90deg, #a3a3a3 var(--fill), #525252 var(--fill));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #a3a3a3;
+    background: none;
+    -webkit-background-clip: unset;
+    -webkit-text-fill-color: #a3a3a3;
     filter: none;
 }
 
