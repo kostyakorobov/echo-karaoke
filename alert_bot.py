@@ -21,7 +21,7 @@ if _env_path.exists():
 from supabase import create_client
 import requests
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://uefvicwsbkjsbvfdhebj.supabase.co")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://anlhvcspsuxpaibnvrxr.supabase.co")
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]

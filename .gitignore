@@ -1,5 +1,7 @@
 .env
+.env.new
 karaoke_output/
+migration_id_map.json
 *.pyc
 __pycache__/
 .gstack/

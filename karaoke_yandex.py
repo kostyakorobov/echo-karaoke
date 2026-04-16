@@ -41,7 +41,7 @@ if _env_path.exists():
             k, v = line.split('=', 1)
             os.environ.setdefault(k.strip(), v.strip())
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://uefvicwsbkjsbvfdhebj.supabase.co")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://anlhvcspsuxpaibnvrxr.supabase.co")
 SUPABASE_KEY = os.environ["SUPABASE_KEY"]
 GROQ_KEY = os.environ["GROQ_KEY"]
 YANDEX_TOKEN = os.environ["YANDEX_TOKEN"]
