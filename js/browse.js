@@ -12,6 +12,19 @@ export function initBrowse(onPlayCallback) {
     onPlay = onPlayCallback;
     generateQrCode();
     document.addEventListener('keydown', handleKey);
+
+    const list = document.getElementById('browseList');
+    if (list) {
+        list.addEventListener('click', (e) => {
+            if (!visible) return;
+            const item = e.target.closest('.browse-item');
+            if (!item) return;
+            const idx = parseInt(item.dataset.index, 10);
+            if (Number.isNaN(idx)) return;
+            selectedIndex = idx;
+            selectSong();
+        });
+    }
 }
 
 // --- Show / Hide ---

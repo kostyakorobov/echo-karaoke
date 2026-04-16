@@ -298,6 +298,11 @@ body {
     background: #141414;
     transition: all 0.15s ease;
     flex-shrink: 0;
+    cursor: pointer;
+}
+.browse-item:hover {
+    border-color: #a855f7;
+    background: #1a1a1a;
 }
 .browse-item.selected {
     border-color: #a855f7;
