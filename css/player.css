@@ -309,6 +309,9 @@ body {
     background: #1a1a1a;
     box-shadow: 0 0 30px rgba(168, 85, 247, 0.15);
 }
+.browse-list:hover .browse-item.selected {
+    box-shadow: none;
+}
 .browse-num {
     width: 36px; text-align: center;
     font-size: 14px; font-weight: 600; color: #737373;

@@ -24,6 +24,18 @@ export function initBrowse(onPlayCallback) {
             selectedIndex = idx;
             selectSong();
         });
+
+        list.addEventListener('mouseover', (e) => {
+            if (!visible) return;
+            const item = e.target.closest('.browse-item');
+            if (!item) return;
+            const idx = parseInt(item.dataset.index, 10);
+            if (Number.isNaN(idx) || idx === selectedIndex) return;
+            selectedIndex = idx;
+            for (const el of list.querySelectorAll('.browse-item')) {
+                el.classList.toggle('selected', parseInt(el.dataset.index, 10) === idx);
+            }
+        });
     }
 }
 
