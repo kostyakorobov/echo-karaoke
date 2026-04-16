@@ -2,46 +2,12 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Эхо Караоке</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #0a0a0a; color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            min-height: 100vh; display: flex;
-            flex-direction: column; align-items: center; justify-content: center;
-            padding: 40px 20px;
-        }
-        h1 {
-            font-size: 56px; font-weight: 800;
-            background: linear-gradient(135deg, #a855f7, #ec4899);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            margin-bottom: 12px;
-        }
-        p { color: #525252; font-size: 18px; margin-bottom: 48px; }
-        .links { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
-        a {
-            display: block; padding: 16px 32px;
-            border-radius: 12px; text-decoration: none;
-            font-weight: 600; font-size: 16px; transition: transform 0.2s;
-        }
-        a:active { transform: scale(0.97); }
-        .player-link {
-            background: linear-gradient(135deg, #a855f7, #ec4899); color: #fff;
-        }
-        .remote-link {
-            background: #1a1a1a; color: #fff; border: 1px solid #262626;
-        }
-    </style>
+    <script>
+        const params = window.location.search || '?room=hall_1';
+        window.location.replace('/player.html' + params);
+    </script>
+    <meta http-equiv="refresh" content="0; url=/player.html?room=hall_1">
 </head>
-<body>
-    <h1>ЭХО</h1>
-    <p>Караоке нового поколения</p>
-    <div class="links">
-        <a href="/player.html?room=hall_1" class="player-link">🖥 Плеер (ТВ)</a>
-        <a href="/remote.html?room=hall_1" class="remote-link">📱 Пульт (Гость)</a>
-        <a href="/admin.html" class="remote-link">⚙ Админка</a>
-    </div>
-</body>
+<body></body>
 </html>
