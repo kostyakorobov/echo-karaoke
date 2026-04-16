@@ -94,3 +94,14 @@ export async function addSongToQueue(songId, userName) {
         p_user_name: userName || null
     });
 }
+
+export async function upsertDeviceStatus(state, currentSong, queueLength, lastError) {
+    await sb.from('device_status').upsert({
+        room_id: ROOM_ID,
+        updated_at: new Date().toISOString(),
+        state,
+        current_song: currentSong,
+        queue_length: queueLength,
+        last_error: lastError
+    }, { onConflict: 'room_id' });
+}

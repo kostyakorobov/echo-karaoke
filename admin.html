@@ -395,6 +395,93 @@
             cursor: default;
         }
         /* Auth overlay */
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0;
+            padding: 0 32px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .tab-btn {
+            padding: 12px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #525252;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { color: #a3a3a3; }
+        .tab-btn.active {
+            color: #a855f7;
+            border-bottom-color: #a855f7;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: grid; }
+        .tab-content-monitor.active { display: block; }
+
+        /* Monitoring */
+        .monitor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+            padding: 24px 32px;
+        }
+        .device-card {
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .device-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .device-name {
+            font-weight: 600;
+            font-size: 16px;
+        }
+        .device-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .device-dot.green { background: #22c55e; animation: pulse-dot 2s infinite; }
+        .device-dot.yellow { background: #f59e0b; animation: pulse-dot 1s infinite; }
+        .device-dot.red { background: #ef4444; }
+        .device-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            padding: 4px 0;
+            color: #a3a3a3;
+        }
+        .device-row-label { color: #525252; }
+        .device-error {
+            font-size: 12px;
+            color: #ef4444;
+            margin-top: 8px;
+            padding: 6px 10px;
+            background: rgba(239, 68, 68, 0.08);
+            border-radius: 6px;
+            word-break: break-all;
+        }
+        .device-ago {
+            font-size: 11px;
+            color: #525252;
+            margin-top: 8px;
+        }
+        .device-empty {
+            text-align: center;
+            padding: 60px 30px;
+            color: #525252;
+            font-size: 14px;
+        }
+
         .auth-overlay {
             position: fixed;
             inset: 0;
@@ -482,7 +569,12 @@
         </div>
     </div>
 
-    <div class="layout">
+    <div class="tabs">
+        <button class="tab-btn active" data-tab="main">Управление</button>
+        <button class="tab-btn" data-tab="monitor">Мониторинг</button>
+    </div>
+
+    <div class="layout tab-content active" id="tab-main">
         <!-- Left: Rooms -->
         <div class="rooms-panel">
             <div class="panel-title">Комнаты</div>
@@ -512,6 +604,13 @@
                    placeholder="Поиск по каталогу..." autocomplete="off">
 
             <div class="catalog-list" id="catalogList"></div>
+        </div>
+    </div> <!-- /tab-main -->
+
+    <!-- Monitoring tab -->
+    <div class="tab-content-monitor tab-content" id="tab-monitor">
+        <div class="monitor-grid" id="monitorGrid">
+            <div class="device-empty">Нет данных. Устройства появятся после первого heartbeat.</div>
         </div>
     </div>
 
@@ -789,6 +888,111 @@
             table: 'karaoke_songs'
         }, () => { loadCatalog(); })
         .subscribe();
+
+    // --- Tabs ---
+    const ROOM_NAMES = {
+        'hall_1': 'Зал 1', 'hall_2': 'Зал 2', 'hall_3': 'Зал 3',
+        'hall_4': 'Зал 4', 'hall_5': 'Зал 5'
+    };
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.onclick = () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+            if (btn.dataset.tab === 'monitor') loadMonitor();
+        };
+    });
+
+    // --- Monitoring ---
+    const deviceData = {};
+
+    function timeAgo(ts) {
+        const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+        if (diff < 60) return `${diff}с назад`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}м назад`;
+        return `${Math.floor(diff / 3600)}ч назад`;
+    }
+
+    function dotColor(ts) {
+        const diffMin = (Date.now() - new Date(ts).getTime()) / 60000;
+        if (diffMin < 1) return 'green';
+        if (diffMin < 3) return 'yellow';
+        return 'red';
+    }
+
+    function stateLabel(state) {
+        if (state === 'playing') return 'Играет';
+        if (state === 'error') return 'Ошибка';
+        return 'Ожидание';
+    }
+
+    function renderDeviceCard(d) {
+        const name = ROOM_NAMES[d.room_id] || d.room_id;
+        const color = dotColor(d.updated_at);
+        return `
+            <div class="device-card">
+                <div class="device-header">
+                    <div class="device-name">${esc(name)}</div>
+                    <div class="device-dot ${color}"></div>
+                </div>
+                <div class="device-row">
+                    <span class="device-row-label">Статус</span>
+                    <span>${stateLabel(d.state)}</span>
+                </div>
+                <div class="device-row">
+                    <span class="device-row-label">Песня</span>
+                    <span>${d.current_song ? esc(d.current_song) : '—'}</span>
+                </div>
+                <div class="device-row">
+                    <span class="device-row-label">Очередь</span>
+                    <span>${d.queue_length || 0}</span>
+                </div>
+                ${d.last_error ? `<div class="device-error">${esc(d.last_error)}</div>` : ''}
+                <div class="device-ago">${timeAgo(d.updated_at)}</div>
+            </div>
+        `;
+    }
+
+    function renderMonitor() {
+        const grid = document.getElementById('monitorGrid');
+        const entries = Object.values(deviceData);
+        if (entries.length === 0) {
+            grid.innerHTML = '<div class="device-empty">Нет данных. Устройства появятся после первого heartbeat.</div>';
+            return;
+        }
+        grid.innerHTML = entries.map(renderDeviceCard).join('');
+    }
+
+    async function loadMonitor() {
+        const { data } = await sb.from('device_status').select('*');
+        if (data) {
+            data.forEach(d => { deviceData[d.room_id] = d; });
+            renderMonitor();
+        }
+    }
+
+    // Realtime updates for device_status
+    sb.channel('admin_device_status')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'device_status'
+        }, (payload) => {
+            if (payload.new) {
+                deviceData[payload.new.room_id] = payload.new;
+                renderMonitor();
+            }
+        })
+        .subscribe();
+
+    // Refresh "time ago" labels every 15s
+    setInterval(() => {
+        if (document.getElementById('tab-monitor').classList.contains('active')) {
+            renderMonitor();
+        }
+    }, 15000);
 
     // --- Init ---
     loadRooms();

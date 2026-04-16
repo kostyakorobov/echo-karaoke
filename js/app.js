@@ -1,5 +1,5 @@
 import { ROOM_ID, VIDEO_URL } from './config.js';
-import { sb, cmdChannel, getSongById, getSongMeta, getNextWaiting, getQueueWaiting, getCurrentPlaying, getLastDone, setQueueStatus, broadcastState } from './supabase.js';
+import { sb, cmdChannel, getSongById, getSongMeta, getNextWaiting, getQueueWaiting, getCurrentPlaying, getLastDone, setQueueStatus, broadcastState, upsertDeviceStatus } from './supabase.js';
 import { parseWords, clearLyrics, getLines, isInterludeVisible, renderLine, renderNextLine, findCurrentLineIdx, updateInterlude, hideInterlude } from './lyrics.js';
 import { initFx, initCongratsFx } from './fx.js';
 import { showCongrats, hideCongrats, showCountdown } from './congrats.js';
@@ -18,6 +18,16 @@ let toastTimer = null;
 let checkingQueue = false;
 let skipping = false;
 let goingBack = false;
+let lastError = null;
+
+// Capture uncaught sync errors
+window.onerror = (msg, src, line) => {
+    lastError = `${msg} (${src}:${line})`;
+};
+// Capture uncaught async errors (Promise rejections)
+window.addEventListener('unhandledrejection', (e) => {
+    lastError = `Unhandled rejection: ${e.reason?.message || e.reason}`;
+});
 
 // --- Toast ---
 function showPlayerToast(title, detail, type = '') {
@@ -88,6 +98,7 @@ async function loadSong(songId, userName) {
     // Auto-skip on load failure (8s timeout)
     const loadTimeout = setTimeout(() => {
         if (audio.readyState < 2) {
+            lastError = `Audio load timeout: ${song.title}`;
             showPlayerToast('Песня недоступна', 'Переходим к следующей', 'error');
             setTimeout(() => skipToNext(), 2000);
         }
@@ -212,6 +223,7 @@ queueChannel.on('system', {}, ({ status }) => {
             status === 'CHANNEL_ERROR' ? 'disconnected' : 'reconnecting'
         );
     }
+    if (status === 'CHANNEL_ERROR') lastError = 'Supabase connection lost';
 });
 
 queueChannel
@@ -387,3 +399,14 @@ document.getElementById('splashBtn').onclick = async () => {
 };
 
 requestAnimationFrame(tick);
+
+// Heartbeat — every 30s
+setInterval(async () => {
+    const state = lastError ? 'error'
+        : (currentSong && !audio.paused) ? 'playing'
+        : 'idle';
+    const songTitle = currentSong ? `${currentSong.artist} — ${currentSong.title}` : null;
+    const queueItems = await getQueueWaiting(100);
+    await upsertDeviceStatus(state, songTitle, queueItems.length, lastError);
+    if (lastError) lastError = null;
+}, 30000);
