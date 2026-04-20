@@ -3,7 +3,6 @@
     package="com.echo.karaoke">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Declare it works on TV (no touchscreen required) -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -28,14 +27,5 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <receiver
-            android:name=".BootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
     </application>
 </manifest>
