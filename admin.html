@@ -909,7 +909,7 @@
 
     async function fetchActiveSessions() {
         const { data } = await sb.from('sessions')
-            .select('id, room_id, started_at, ends_at, status')
+            .select('id, room_id, started_at, ends_at, status, age_gate_answer')
             .eq('status', 'active');
         const map = {};
         for (const s of (data || [])) map[s.room_id] = s;
@@ -1025,6 +1025,9 @@
                     </div>
                     <div class="session-actions">
                         <button class="btn-session" onclick="window._extendSession('${escAttr(session.id)}')">+60 мин</button>
+                        ${session.age_gate_answer === null
+                            ? `<div class="btn-session" style="pointer-events:none; opacity:0.7;">⏳ Ждём ответа на возраст</div>`
+                            : `<button class="btn-session" onclick="window._resetAgeGate('${escAttr(session.id)}')" title="Сбросить ответ на возраст">⟲ ${session.age_gate_answer ? 'Есть дети <18' : 'Только взрослые'}</button>`}
                         <button class="btn-session danger" onclick="window._endSession('${escAttr(session.id)}')">⏹ Завершить</button>
                     </div>
                     ${playing ? `
@@ -1264,6 +1267,16 @@
         });
         if (error) { showToast('Ошибка: ' + error.message); return; }
         showToast('Бронь завершена');
+        loadRooms();
+    };
+
+    window._resetAgeGate = async function(sessionId) {
+        if (!confirm('Сбросить ответ на возрастной вопрос? Пульт спросит гостей заново.')) return;
+        const { error } = await sb.rpc('session_reset_age_gate', {
+            p_session_id: sessionId
+        });
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast('Возрастной вопрос сброшен');
         loadRooms();
     };
 

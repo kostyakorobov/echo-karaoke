@@ -531,6 +531,53 @@
             color: #737373;
         }
 
+        /* Age-gate modal (blocks remote until first guest answers) */
+        .age-gate-modal {
+            position: fixed; inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 950;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .age-gate-modal.hidden { display: none; }
+        .age-gate-card {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 20px;
+            padding: 28px 24px;
+            width: 100%;
+            max-width: 380px;
+            text-align: center;
+        }
+        .age-gate-icon { font-size: 48px; margin-bottom: 12px; }
+        .age-gate-title {
+            font-size: 20px; font-weight: 700;
+            line-height: 1.3; margin-bottom: 8px;
+        }
+        .age-gate-sub {
+            font-size: 14px; color: #a3a3a3;
+            line-height: 1.5; margin-bottom: 24px;
+        }
+        .age-gate-buttons { display: flex; gap: 10px; }
+        .age-gate-btn {
+            flex: 1;
+            padding: 16px;
+            border-radius: 12px;
+            border: none;
+            font-size: 17px; font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.15s;
+        }
+        .age-gate-btn:active { transform: scale(0.96); }
+        .age-gate-btn.yes {
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            color: #fff;
+        }
+        .age-gate-btn.no { background: #262626; color: #e5e5e5; }
+        .age-gate-btn:disabled { opacity: 0.5; cursor: default; }
+
         /* Warning banner (last 15 min of session) */
         .session-warning-banner {
             position: fixed;
@@ -562,6 +609,19 @@
     <!-- Session ending warning banner -->
     <div class="session-warning-banner hidden" id="sessionWarningBanner">
         <span id="sessionWarningText">Бронь заканчивается скоро</span>
+    </div>
+
+    <!-- Age-gate modal (shown when session active + age_gate_answer IS NULL) -->
+    <div class="age-gate-modal hidden" id="ageGateModal">
+        <div class="age-gate-card">
+            <div class="age-gate-icon">🎂</div>
+            <div class="age-gate-title">Есть ли среди вас<br>лица младше 18 лет?</div>
+            <div class="age-gate-sub">Ответ определит, какое видео покажется перед караоке.</div>
+            <div class="age-gate-buttons">
+                <button class="age-gate-btn yes" id="ageGateYes">Да</button>
+                <button class="age-gate-btn no" id="ageGateNo">Нет</button>
+            </div>
+        </div>
     </div>
 
     <div class="header">
@@ -677,7 +737,7 @@
 
     async function refreshSessionState() {
         const { data } = await sb.from('sessions')
-            .select('id, ends_at')
+            .select('id, ends_at, age_gate_answer')
             .eq('room_id', ROOM_ID)
             .eq('status', 'active')
             .maybeSingle();
@@ -687,9 +747,11 @@
     function applySessionState(session) {
         const overlay = document.getElementById('waitingOverlay');
         const banner = document.getElementById('sessionWarningBanner');
+        const ageGate = document.getElementById('ageGateModal');
         if (!session) {
             overlay.classList.remove('hidden');
             banner.classList.add('hidden');
+            ageGate.classList.add('hidden');
             document.getElementById('modal').classList.remove('visible');
             document.getElementById('confirmModal').classList.remove('visible');
             sessionEndsAt = null;
@@ -697,8 +759,32 @@
         }
         sessionEndsAt = new Date(session.ends_at).getTime();
         overlay.classList.add('hidden');
+        if (session.age_gate_answer === null) {
+            ageGate.classList.remove('hidden');
+        } else {
+            ageGate.classList.add('hidden');
+        }
         tickSessionTimer();
     }
+
+    async function answerAgeGate(answer) {
+        const yes = document.getElementById('ageGateYes');
+        const no = document.getElementById('ageGateNo');
+        yes.disabled = true; no.disabled = true;
+        const { error } = await sb.rpc('session_answer_age_gate', {
+            p_room_id: ROOM_ID,
+            p_answer: answer
+        });
+        yes.disabled = false; no.disabled = false;
+        if (error) {
+            showToast('Ошибка: ' + error.message);
+            return;
+        }
+        document.getElementById('ageGateModal').classList.add('hidden');
+    }
+
+    document.getElementById('ageGateYes').onclick = () => answerAgeGate(true);
+    document.getElementById('ageGateNo').onclick = () => answerAgeGate(false);
 
     function tickSessionTimer() {
         if (sessionEndsAt === null) return;
