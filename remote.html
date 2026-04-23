@@ -214,24 +214,33 @@
             color: #737373;
             margin-top: 2px;
         }
-        .song-add {
-            padding: 8px 16px;
-            border-radius: 20px;
+        .song-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .song-btn {
+            padding: 7px 12px;
+            min-width: 96px;
+            border-radius: 18px;
             border: none;
-            background: #a855f7;
-            color: #fff;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            flex-shrink: 0;
-            transition: background 0.2s;
+            transition: all 0.15s;
+            text-align: center;
         }
-        .song-add:hover { background: #9333ea; }
-        .song-add:disabled {
+        .song-btn.primary {
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            color: #fff;
+        }
+        .song-btn.primary:active { transform: scale(0.95); }
+        .song-btn.secondary {
             background: #262626;
-            color: #525252;
-            cursor: default;
+            color: #d4d4d4;
         }
+        .song-btn.secondary:active { background: #333; }
 
         /* Queue item */
         .queue-item {
@@ -923,20 +932,23 @@
                     <div class="song-name">${esc(s.title)}</div>
                     <div class="song-artist-name">${esc(s.artist)}</div>
                 </div>
-                <button class="song-add" onclick="window._addToQueue('${s.id}', '${escAttr(s.title)}')">
-                    Спеть
-                </button>
+                <div class="song-actions">
+                    <button class="song-btn primary" onclick="window._pickSong('${s.id}', '${escAttr(s.title)}', 'now')">▶ Сейчас</button>
+                    <button class="song-btn secondary" onclick="window._pickSong('${s.id}', '${escAttr(s.title)}', 'queue')">+ В очередь</button>
+                </div>
             </div>`;
     }
 
-    // --- Add to queue ---
-    window._addToQueue = function(songId, songTitle) {
+    // --- Add to queue / play next ---
+    let pendingMode = 'queue';
+    window._pickSong = function(songId, songTitle, mode) {
         pendingSongId = songId;
+        pendingMode = mode;
         window._pendingSongTitle = songTitle;
         if (userName || isTelegram) {
-            addToQueue(songId, userName || 'Гость');
+            submitSong(songId, userName || 'Гость', mode);
         } else {
-            document.getElementById('modalConfirm').textContent = 'В очередь!';
+            document.getElementById('modalConfirm').textContent = mode === 'now' ? '▶ Петь сейчас' : 'В очередь!';
             document.getElementById('modal').classList.add('visible');
             document.getElementById('nameInput').focus();
         }
@@ -953,15 +965,16 @@
         updateUserBadge();
         document.getElementById('modal').classList.remove('visible');
         if (pendingSongId) {
-            addToQueue(pendingSongId, name);
+            submitSong(pendingSongId, name, pendingMode);
         }
     };
     document.getElementById('nameInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') document.getElementById('modalConfirm').click();
     });
 
-    async function addToQueue(songId, name) {
-        const { error } = await sb.rpc('karaoke_queue_add', {
+    async function submitSong(songId, name, mode) {
+        const rpc = mode === 'now' ? 'karaoke_queue_play_next' : 'karaoke_queue_add';
+        const { error } = await sb.rpc(rpc, {
             p_room_id: ROOM_ID,
             p_song_id: songId,
             p_user_name: name || null
@@ -979,7 +992,8 @@
         searchResults.innerHTML = '';
         catalogSection.style.display = '';
 
-        showToast(`${window._pendingSongTitle || 'Песня'} добавлена в очередь`);
+        const title = window._pendingSongTitle || 'Песня';
+        showToast(mode === 'now' ? `${title} — поёте следующей!` : `${title} добавлена в очередь`);
         loadQueue();
     }
 
