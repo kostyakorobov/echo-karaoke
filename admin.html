@@ -624,6 +624,82 @@
             margin-bottom: 12px;
             display: none;
         }
+
+        /* Video modal */
+        .modal-backdrop {
+            position: fixed; inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 400;
+            display: flex; align-items: center; justify-content: center;
+            padding: 24px;
+        }
+        .modal-backdrop.hidden { display: none; }
+        .modal-card {
+            background: #141414;
+            border: 1px solid #262626;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 480px;
+            width: 100%;
+        }
+        .modal-title {
+            font-size: 18px; font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .modal-sub {
+            font-size: 13px; color: #737373;
+            margin-bottom: 20px;
+        }
+        .video-row {
+            padding: 14px;
+            background: #0a0a0a;
+            border: 1px solid #1a1a1a;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+        .video-row-title {
+            font-size: 14px; font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .video-row-desc {
+            font-size: 12px; color: #737373;
+            margin-bottom: 12px;
+        }
+        .video-row-status {
+            font-size: 12px; color: #22c55e;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+        .video-row-status.empty { color: #525252; }
+        .video-row-actions {
+            display: flex; gap: 8px;
+        }
+        .video-row-actions .btn-session { flex: 0 1 auto; }
+        .modal-progress {
+            height: 4px; border-radius: 2px;
+            background: #1a1a1a; overflow: hidden;
+            margin-top: 8px;
+        }
+        .modal-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #a855f7, #ec4899);
+            transition: width 0.2s;
+            width: 0;
+        }
+        .modal-close {
+            margin-top: 8px;
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #262626;
+            border-radius: 10px;
+            background: transparent;
+            color: #a3a3a3;
+            font-size: 14px; font-weight: 600;
+            cursor: pointer;
+        }
+        .modal-close:hover { border-color: #a855f7; color: #a855f7; }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -692,6 +768,42 @@
     <div class="tab-content-monitor tab-content" id="tab-monitor">
         <div class="monitor-grid" id="monitorGrid">
             <div class="device-empty">Нет данных. Устройства появятся после первого heartbeat.</div>
+        </div>
+    </div>
+
+    <!-- Video management modal -->
+    <div class="modal-backdrop hidden" id="videoModal">
+        <div class="modal-card">
+            <div class="modal-title" id="videoModalTitle">Видео для зала</div>
+            <div class="modal-sub">Загружай mp4 — они будут проигрываться перед каталогом в зависимости от ответа на возрастной вопрос.</div>
+
+            <div class="video-row">
+                <div class="video-row-title">Видео 18+</div>
+                <div class="video-row-desc">Играет, если в ответе «нет лиц младше 18»</div>
+                <div class="video-row-status empty" id="videoAdultStatus">не загружено</div>
+                <div class="video-row-actions">
+                    <button class="btn-session" id="videoAdultUploadBtn">📤 Загрузить</button>
+                    <button class="btn-session danger hidden" id="videoAdultDeleteBtn">🗑 Удалить</button>
+                </div>
+                <input type="file" id="videoAdultFile" accept="video/mp4,video/webm,video/quicktime" style="display:none">
+            </div>
+
+            <div class="video-row">
+                <div class="video-row-title">Видео для всех возрастов</div>
+                <div class="video-row-desc">Играет, если есть лица младше 18</div>
+                <div class="video-row-status empty" id="videoCleanStatus">не загружено</div>
+                <div class="video-row-actions">
+                    <button class="btn-session" id="videoCleanUploadBtn">📤 Загрузить</button>
+                    <button class="btn-session danger hidden" id="videoCleanDeleteBtn">🗑 Удалить</button>
+                </div>
+                <input type="file" id="videoCleanFile" accept="video/mp4,video/webm,video/quicktime" style="display:none">
+            </div>
+
+            <div class="modal-progress hidden" id="videoProgress">
+                <div class="modal-progress-bar" id="videoProgressBar"></div>
+            </div>
+
+            <button class="modal-close" id="videoModalClose">Закрыть</button>
         </div>
     </div>
 
@@ -786,7 +898,7 @@
     // --- Rooms & sessions ---
     async function fetchRooms() {
         const { data, error } = await sb.from('rooms')
-            .select('id, name, active, congrats_text, created_at')
+            .select('id, name, active, congrats_text, video_adult_url, video_clean_url, created_at')
             .order('created_at', { ascending: true });
         if (error) {
             console.error('Failed to load rooms:', error);
@@ -868,6 +980,7 @@
                                 <div class="room-status idle">Ожидание</div>
                                 <button class="btn-sm" onclick="window._renameRoom('${escAttr(roomId)}')" title="Переименовать">✏️</button>
                                 <button class="btn-sm" onclick="window._editCongrats('${escAttr(roomId)}')" title="Текст поздравления">✍️</button>
+                                <button class="btn-sm" onclick="window._openVideoModal('${escAttr(roomId)}')" title="Видео">📹</button>
                                 <button class="btn-sm danger" onclick="window._toggleRoom('${escAttr(roomId)}', false)" title="Отключить">⏸</button>
                             </div>
                         </div>
@@ -906,6 +1019,7 @@
                             </div>
                             <button class="btn-sm" onclick="window._renameRoom('${escAttr(roomId)}')" title="Переименовать">✏️</button>
                             <button class="btn-sm" onclick="window._editCongrats('${escAttr(roomId)}')" title="Текст поздравления">✍️</button>
+                            <button class="btn-sm" onclick="window._openVideoModal('${escAttr(roomId)}')" title="Видео">📹</button>
                             <button class="btn-sm danger" onclick="window._toggleRoom('${escAttr(roomId)}', false)" title="Отключить">⏸</button>
                         </div>
                     </div>
@@ -983,6 +1097,134 @@
         showToast(makeActive ? 'Зал включён' : 'Зал отключён');
         loadRooms();
     };
+
+    // --- Video upload modal ---
+    let videoModalRoomId = null;
+
+    function storagePathFromUrl(url) {
+        if (!url) return null;
+        const marker = '/storage/v1/object/public/videos/';
+        const idx = url.indexOf(marker);
+        return idx >= 0 ? url.substring(idx + marker.length) : null;
+    }
+
+    function renderVideoModal() {
+        const room = rooms.find(r => r.id === videoModalRoomId);
+        if (!room) return;
+        document.getElementById('videoModalTitle').textContent = `Видео: ${room.name}`;
+
+        const adultStatus = document.getElementById('videoAdultStatus');
+        const cleanStatus = document.getElementById('videoCleanStatus');
+        const adultDel = document.getElementById('videoAdultDeleteBtn');
+        const cleanDel = document.getElementById('videoCleanDeleteBtn');
+
+        if (room.video_adult_url) {
+            adultStatus.textContent = '✓ ' + room.video_adult_url.split('/').pop();
+            adultStatus.classList.remove('empty');
+            adultDel.classList.remove('hidden');
+        } else {
+            adultStatus.textContent = 'не загружено';
+            adultStatus.classList.add('empty');
+            adultDel.classList.add('hidden');
+        }
+        if (room.video_clean_url) {
+            cleanStatus.textContent = '✓ ' + room.video_clean_url.split('/').pop();
+            cleanStatus.classList.remove('empty');
+            cleanDel.classList.remove('hidden');
+        } else {
+            cleanStatus.textContent = 'не загружено';
+            cleanStatus.classList.add('empty');
+            cleanDel.classList.add('hidden');
+        }
+    }
+
+    window._openVideoModal = function(roomId) {
+        videoModalRoomId = roomId;
+        renderVideoModal();
+        document.getElementById('videoModal').classList.remove('hidden');
+    };
+
+    document.getElementById('videoModalClose').onclick = () => {
+        document.getElementById('videoModal').classList.add('hidden');
+        videoModalRoomId = null;
+    };
+
+    async function uploadVideo(kind, file) {
+        if (!videoModalRoomId) return;
+        const column = `video_${kind}_url`;
+        const room = rooms.find(r => r.id === videoModalRoomId);
+        const ext = (file.name.split('.').pop() || 'mp4').toLowerCase();
+        const path = `${videoModalRoomId}/${kind}_${Date.now()}.${ext}`;
+
+        const progressWrap = document.getElementById('videoProgress');
+        const progressBar = document.getElementById('videoProgressBar');
+        progressWrap.classList.remove('hidden');
+        progressBar.style.width = '10%';
+
+        const { error } = await sb.storage.from('videos').upload(path, file, {
+            cacheControl: '3600',
+            upsert: false,
+            contentType: file.type || 'video/mp4'
+        });
+        if (error) {
+            showToast('Ошибка загрузки: ' + error.message);
+            progressWrap.classList.add('hidden');
+            progressBar.style.width = '0';
+            return;
+        }
+
+        progressBar.style.width = '70%';
+
+        const { data: { publicUrl } } = sb.storage.from('videos').getPublicUrl(path);
+        const { error: updErr } = await sb.from('rooms')
+            .update({ [column]: publicUrl })
+            .eq('id', videoModalRoomId);
+        if (updErr) { showToast('Ошибка: ' + updErr.message); progressWrap.classList.add('hidden'); return; }
+
+        // Remove the previous file, if any
+        const oldPath = storagePathFromUrl(room?.[column]);
+        if (oldPath && oldPath !== path) {
+            await sb.storage.from('videos').remove([oldPath]);
+        }
+
+        progressBar.style.width = '100%';
+        showToast('Видео загружено');
+        await loadRooms();
+        renderVideoModal();
+        setTimeout(() => {
+            progressWrap.classList.add('hidden');
+            progressBar.style.width = '0';
+        }, 400);
+    }
+
+    async function deleteVideo(kind) {
+        if (!videoModalRoomId) return;
+        if (!confirm('Удалить видео?')) return;
+        const column = `video_${kind}_url`;
+        const room = rooms.find(r => r.id === videoModalRoomId);
+        const path = storagePathFromUrl(room?.[column]);
+
+        if (path) await sb.storage.from('videos').remove([path]);
+        await sb.from('rooms').update({ [column]: null }).eq('id', videoModalRoomId);
+        showToast('Видео удалено');
+        await loadRooms();
+        renderVideoModal();
+    }
+
+    document.getElementById('videoAdultUploadBtn').onclick = () => document.getElementById('videoAdultFile').click();
+    document.getElementById('videoCleanUploadBtn').onclick = () => document.getElementById('videoCleanFile').click();
+    document.getElementById('videoAdultFile').onchange = (e) => {
+        const f = e.target.files[0];
+        if (f) uploadVideo('adult', f);
+        e.target.value = '';
+    };
+    document.getElementById('videoCleanFile').onchange = (e) => {
+        const f = e.target.files[0];
+        if (f) uploadVideo('clean', f);
+        e.target.value = '';
+    };
+    document.getElementById('videoAdultDeleteBtn').onclick = () => deleteVideo('adult');
+    document.getElementById('videoCleanDeleteBtn').onclick = () => deleteVideo('clean');
 
     // --- Sessions (bookings) ---
     window._startSession = async function(roomId) {
