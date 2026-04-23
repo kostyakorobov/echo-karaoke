@@ -95,6 +95,15 @@ export async function addSongToQueue(songId, userName) {
     });
 }
 
+export async function loadRooms({ activeOnly = true } = {}) {
+    let query = sb.from('rooms')
+        .select('id, name, congrats_text, video_adult_url, video_clean_url, active, created_at')
+        .order('created_at', { ascending: true });
+    if (activeOnly) query = query.eq('active', true);
+    const { data } = await query;
+    return data || [];
+}
+
 export async function upsertDeviceStatus(state, currentSong, queueLength, lastError) {
     await sb.from('device_status').upsert({
         room_id: ROOM_ID,

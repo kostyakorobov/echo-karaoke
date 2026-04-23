@@ -71,6 +71,36 @@
             letter-spacing: 0.5px;
             margin-bottom: 16px;
         }
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .panel-head .panel-title { margin-bottom: 0; }
+        .btn-ghost {
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid #262626;
+            background: transparent;
+            color: #a3a3a3;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-ghost:hover {
+            border-color: #a855f7;
+            color: #a855f7;
+        }
+        .room-card.inactive {
+            opacity: 0.45;
+        }
+        .room-name-edit {
+            font-size: 11px;
+            color: #525252;
+            margin-left: 8px;
+        }
 
         /* Room card */
         .room-card {
@@ -577,7 +607,10 @@
     <div class="layout tab-content active" id="tab-main">
         <!-- Left: Rooms -->
         <div class="rooms-panel">
-            <div class="panel-title">Комнаты</div>
+            <div class="panel-head">
+                <div class="panel-title">Комнаты</div>
+                <button class="btn-ghost" id="addRoomBtn">+ Добавить зал</button>
+            </div>
             <div id="rooms"></div>
         </div>
 
@@ -621,10 +654,10 @@
 
     const SUPABASE_URL = 'https://anlhvcspsuxpaibnvrxr.supabase.co';
     const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFubGh2Y3Nwc3V4cGFpYm52cnhyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMjk1MDMsImV4cCI6MjA5MTkwNTUwM30.MgF8h9fZ-VAw4SnQwUE3-btqaFkghHFai09k0Cpds60';
-    const ROOMS = ['hall_1', 'hall_2', 'hall_3'];
 
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
     let allSongs = [];
+    let rooms = [];
 
     // --- Auth gate ---
     const ADMIN_EMAIL = 'admin@echo-karaoke.local';
@@ -702,13 +735,45 @@
     }
 
     // --- Rooms ---
+    async function fetchRooms() {
+        const { data, error } = await sb.from('rooms')
+            .select('id, name, active, created_at')
+            .order('created_at', { ascending: true });
+        if (error) {
+            console.error('Failed to load rooms:', error);
+            return [];
+        }
+        return data || [];
+    }
+
     async function loadRooms() {
+        rooms = await fetchRooms();
         const container = document.getElementById('rooms');
         let totalQueue = 0;
         let totalPlaying = 0;
         let html = '';
 
-        for (const roomId of ROOMS) {
+        for (const room of rooms) {
+            const roomId = room.id;
+
+            if (!room.active) {
+                html += `
+                    <div class="room-card inactive">
+                        <div class="room-header">
+                            <div class="room-name">${esc(room.name)}
+                                <span class="room-name-edit">${esc(roomId)}</span>
+                            </div>
+                            <div class="room-queue-actions">
+                                <button class="btn-sm" onclick="window._renameRoom('${escAttr(roomId)}')" title="Переименовать">✏️</button>
+                                <button class="btn-sm skip" onclick="window._toggleRoom('${escAttr(roomId)}', true)" title="Включить">🟢</button>
+                            </div>
+                        </div>
+                        <div class="room-now-empty">Отключён</div>
+                    </div>
+                `;
+                continue;
+            }
+
             const { data: queue } = await sb.from('karaoke_queue')
                 .select('*, karaoke_songs(title, artist)')
                 .eq('room_id', roomId)
@@ -722,14 +787,18 @@
             if (playing) totalPlaying++;
             totalQueue += waiting.length;
 
-            const roomLabel = roomId.replace('hall_', 'Зал ');
-
             html += `
                 <div class="room-card ${playing ? 'active' : ''}">
                     <div class="room-header">
-                        <div class="room-name">${esc(roomLabel)}</div>
-                        <div class="room-status ${playing ? 'playing' : 'idle'}">
-                            ${playing ? 'Играет' : 'Свободен'}
+                        <div class="room-name">${esc(room.name)}
+                            <span class="room-name-edit">${esc(roomId)}</span>
+                        </div>
+                        <div class="room-queue-actions">
+                            <div class="room-status ${playing ? 'playing' : 'idle'}">
+                                ${playing ? 'Играет' : 'Свободен'}
+                            </div>
+                            <button class="btn-sm" onclick="window._renameRoom('${escAttr(roomId)}')" title="Переименовать">✏️</button>
+                            <button class="btn-sm danger" onclick="window._toggleRoom('${escAttr(roomId)}', false)" title="Отключить">⏸</button>
                         </div>
                     </div>
                     ${playing ? `
@@ -762,10 +831,52 @@
             `;
         }
 
-        container.innerHTML = html;
+        container.innerHTML = html || '<div class="empty">Нет залов. Добавьте первый зал.</div>';
         document.getElementById('totalQueue').textContent = totalQueue;
         document.getElementById('totalPlaying').textContent = totalPlaying;
     }
+
+    // --- Room CRUD ---
+    window._renameRoom = async function(roomId) {
+        const current = rooms.find(r => r.id === roomId);
+        const newName = prompt('Новое имя зала:', current?.name || '');
+        if (!newName || newName === current?.name) return;
+        const { error } = await sb.from('rooms').update({ name: newName.trim() }).eq('id', roomId);
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast('Зал переименован');
+        loadRooms();
+    };
+
+    window._toggleRoom = async function(roomId, makeActive) {
+        const verb = makeActive ? 'включить' : 'отключить';
+        if (!confirm(`Точно ${verb} этот зал?`)) return;
+        const { error } = await sb.from('rooms').update({ active: makeActive }).eq('id', roomId);
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast(makeActive ? 'Зал включён' : 'Зал отключён');
+        loadRooms();
+    };
+
+    async function addRoom() {
+        const id = prompt('ID зала (латиница, напр. hall_6):');
+        if (!id) return;
+        const cleanId = id.trim();
+        if (!/^[a-z0-9_]+$/i.test(cleanId)) {
+            showToast('ID: только латиница, цифры и _');
+            return;
+        }
+        const name = prompt('Отображаемое имя (напр. Зал 6):', cleanId);
+        if (!name) return;
+        const { error } = await sb.from('rooms').insert({
+            id: cleanId,
+            name: name.trim(),
+            active: true
+        });
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast('Зал добавлен');
+        loadRooms();
+    }
+
+    document.getElementById('addRoomBtn').onclick = addRoom;
 
     // --- Queue actions ---
     // Broadcast channels per room (for skip command)
@@ -889,11 +1000,19 @@
         }, () => { loadCatalog(); })
         .subscribe();
 
+    sb.channel('admin_rooms')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'rooms'
+        }, () => { loadRooms(); })
+        .subscribe();
+
     // --- Tabs ---
-    const ROOM_NAMES = {
-        'hall_1': 'Зал 1', 'hall_2': 'Зал 2', 'hall_3': 'Зал 3',
-        'hall_4': 'Зал 4', 'hall_5': 'Зал 5'
-    };
+    function roomNameOf(roomId) {
+        const r = rooms.find(x => x.id === roomId);
+        return r?.name || roomId;
+    }
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.onclick = () => {
@@ -929,7 +1048,7 @@
     }
 
     function renderDeviceCard(d) {
-        const name = ROOM_NAMES[d.room_id] || d.room_id;
+        const name = roomNameOf(d.room_id);
         const color = dotColor(d.updated_at);
         return `
             <div class="device-card">
