@@ -1,4 +1,4 @@
-import { ROOM_ID, VIDEO_URL } from './config.js';
+import { ROOM_ID } from './config.js';
 import { sb, cmdChannel, getSongById, getSongMeta, getNextWaiting, getQueueWaiting, getCurrentPlaying, getLastDone, setQueueStatus, broadcastState, upsertDeviceStatus } from './supabase.js';
 import { parseWords, clearLyrics, getLines, isInterludeVisible, renderLine, renderNextLine, findCurrentLineIdx, updateInterlude, hideInterlude } from './lyrics.js';
 import { initFx, initCongratsFx } from './fx.js';
@@ -56,7 +56,7 @@ let sessionEndsAt = null;
 
 async function refreshSessionState() {
     const { data } = await sb.from('sessions')
-        .select('id, ends_at')
+        .select('id, ends_at, age_gate_answer')
         .eq('room_id', ROOM_ID)
         .eq('status', 'active')
         .maybeSingle();
@@ -75,6 +75,8 @@ function applySessionState(session) {
         banner.classList.add('hidden');
         if (!audio.paused) audio.pause();
         sessionEndsAt = null;
+        // Unblock any pending age-gate wait so the splash flow unwinds cleanly
+        if (awaitAgeGateResolve) { awaitAgeGateResolve(); awaitAgeGateResolve = null; }
         return;
     }
 
@@ -82,6 +84,11 @@ function applySessionState(session) {
     overlay.classList.add('hidden');
     timer.classList.remove('hidden');
     tickSessionTimer();
+
+    if (session.age_gate_answer !== null && awaitAgeGateResolve) {
+        awaitAgeGateResolve();
+        awaitAgeGateResolve = null;
+    }
 }
 
 function tickSessionTimer() {
@@ -446,14 +453,32 @@ function tick() {
 }
 
 // --- Video pre-roll ---
+async function resolvePreRollUrl() {
+    const { data: session } = await sb.from('sessions')
+        .select('age_gate_answer')
+        .eq('room_id', ROOM_ID)
+        .eq('status', 'active')
+        .maybeSingle();
+    if (!session || session.age_gate_answer === null) return null;
+
+    const { data: room } = await sb.from('rooms')
+        .select('video_adult_url, video_clean_url')
+        .eq('id', ROOM_ID)
+        .maybeSingle();
+    if (!room) return null;
+
+    return session.age_gate_answer ? room.video_clean_url : room.video_adult_url;
+}
+
 async function playVideo() {
-    if (!VIDEO_URL) return;
+    const url = await resolvePreRollUrl();
+    if (!url) return;
 
     const overlay = document.getElementById('videoOverlay');
     const video = document.getElementById('promoVideo');
     const skipBtn = document.getElementById('videoSkip');
 
-    video.src = VIDEO_URL;
+    video.src = url;
     overlay.classList.remove('hidden');
 
     return new Promise(resolve => {
@@ -468,6 +493,22 @@ async function playVideo() {
             resolve();
         };
     });
+}
+
+// Resolves when the active session has a non-null age_gate_answer.
+// If the session disappears mid-wait, also resolves (caller handles no-video).
+let awaitAgeGateResolve = null;
+async function waitForAgeGate() {
+    const { data } = await sb.from('sessions')
+        .select('age_gate_answer')
+        .eq('room_id', ROOM_ID)
+        .eq('status', 'active')
+        .maybeSingle();
+    if (!data || data.age_gate_answer !== null) return;
+
+    document.getElementById('awaitingAnswerOverlay').classList.remove('hidden');
+    await new Promise(resolve => { awaitAgeGateResolve = resolve; });
+    document.getElementById('awaitingAnswerOverlay').classList.add('hidden');
 }
 
 // --- Splash ---
@@ -487,7 +528,10 @@ document.getElementById('splashBtn').onclick = async () => {
     // Init browse with callback for when a song is selected
     initBrowse(() => checkQueue());
 
-    // Play pre-roll video if configured
+    // Block until someone on the remote answers the age question
+    await waitForAgeGate();
+
+    // Play the video matching the age answer (if uploaded for this room)
     await playVideo();
 
     // Show browse catalog

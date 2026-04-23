@@ -236,6 +236,20 @@ body {
     50% { transform: scale(1.5); opacity: 0.4; }
 }
 
+/* --- Awaiting age-gate answer (shown between splash and video) --- */
+.awaiting-answer-overlay {
+    position: fixed; inset: 0; background: #0a0a0a; z-index: 150;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+}
+.awaiting-answer-overlay.hidden { display: none; }
+.awaiting-answer-overlay h1 {
+    font-family: 'General Sans', sans-serif;
+    font-size: 96px; font-weight: 800;
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
 /* --- Session timer chip --- */
 .session-timer {
     position: fixed; top: 18px; right: 24px; z-index: 90;
