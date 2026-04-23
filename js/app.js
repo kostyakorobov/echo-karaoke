@@ -182,6 +182,22 @@ async function goToBrowse() {
     await showBrowse();
 }
 
+// --- Service Worker: ask to cache a track URL for offline playback ---
+function cacheTrackUrl(url) {
+    if (!url) return;
+    if (navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: 'cache-track', url });
+    }
+}
+
+async function prefetchNextTrack() {
+    const next = await getNextWaiting();
+    if (next?.song_id) {
+        const nextSong = await getSongById(next.song_id);
+        if (nextSong?.audio_path) cacheTrackUrl(nextSong.audio_path);
+    }
+}
+
 // --- Load song ---
 async function loadSong(songId, userName) {
     const song = await getSongById(songId);
@@ -191,6 +207,8 @@ async function loadSong(songId, userName) {
     currentSong = song;
     lastSingerName = userName || '';
     audio.src = song.audio_path;
+    cacheTrackUrl(song.audio_path);
+    prefetchNextTrack();
     document.getElementById('title').textContent = song.title;
     document.getElementById('nowDot').style.display = '';
     const metaParts = [esc(song.artist)];

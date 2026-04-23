@@ -603,6 +603,41 @@
             box-shadow: 0 2px 12px rgba(245, 158, 11, 0.4);
         }
         .session-warning-banner.hidden { display: none; }
+
+        /* Offline indicator */
+        .offline-indicator {
+            position: fixed;
+            bottom: 16px;
+            left: 16px;
+            z-index: 80;
+            padding: 7px 12px;
+            border-radius: 18px;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #ef4444;
+            font-size: 12px;
+            font-weight: 600;
+            pointer-events: none;
+            backdrop-filter: blur(6px);
+        }
+        .offline-indicator.hidden { display: none; }
+
+        .pending-sync-indicator {
+            position: fixed;
+            bottom: 16px;
+            right: 16px;
+            z-index: 80;
+            padding: 7px 12px;
+            border-radius: 18px;
+            background: rgba(168, 85, 247, 0.15);
+            border: 1px solid rgba(168, 85, 247, 0.4);
+            color: #c084fc;
+            font-size: 12px;
+            font-weight: 600;
+            pointer-events: none;
+            backdrop-filter: blur(6px);
+        }
+        .pending-sync-indicator.hidden { display: none; }
     </style>
 </head>
 <body>
@@ -729,6 +764,27 @@
     <!-- Toast -->
     <div class="toast" id="toast"></div>
 
+    <!-- Offline indicator pill (bottom-left, visible only when offline) -->
+    <div class="offline-indicator hidden" id="offlineIndicator">⚠ Нет связи</div>
+
+    <!-- Pending sync indicator (bottom-right, visible only when there are queued ops) -->
+    <div class="pending-sync-indicator hidden" id="pendingSyncIndicator">⟳ 0 не отправлено</div>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch((e) =>
+                console.warn('SW register failed:', e)
+            );
+        }
+        (function wireOfflineIndicator() {
+            const pill = document.getElementById('offlineIndicator');
+            const update = () => pill.classList.toggle('hidden', navigator.onLine);
+            window.addEventListener('online', update);
+            window.addEventListener('offline', update);
+            update();
+        })();
+    </script>
+
     <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -739,6 +795,76 @@
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
     let pendingSongId = null;
     let isPlaying = false;
+
+    // --- Offline cache / pending ops ---
+    const CATALOG_CACHE_KEY = 'echo_catalog_v1';
+    const PENDING_OPS_KEY = `echo_pending_${ROOM_ID}`;
+
+    function loadCatalogCache() {
+        try { return JSON.parse(localStorage.getItem(CATALOG_CACHE_KEY) || '[]'); }
+        catch (e) { return []; }
+    }
+    function saveCatalogCache(songs) {
+        try { localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify(songs)); }
+        catch (e) { /* quota; non-critical */ }
+    }
+    function searchCached(query) {
+        const q = query.toLowerCase();
+        return loadCatalogCache()
+            .filter(s => (s.title || '').toLowerCase().includes(q) ||
+                         (s.artist || '').toLowerCase().includes(q))
+            .slice(0, 10);
+    }
+
+    function loadPendingOps() {
+        try { return JSON.parse(localStorage.getItem(PENDING_OPS_KEY) || '[]'); }
+        catch (e) { return []; }
+    }
+    function savePendingOps(ops) {
+        localStorage.setItem(PENDING_OPS_KEY, JSON.stringify(ops));
+    }
+    function enqueuePendingOp(op) {
+        const ops = loadPendingOps();
+        ops.push(op);
+        savePendingOps(ops);
+        updatePendingIndicator();
+    }
+    function updatePendingIndicator() {
+        const pill = document.getElementById('pendingSyncIndicator');
+        if (!pill) return;
+        const count = loadPendingOps().length;
+        if (count === 0) pill.classList.add('hidden');
+        else {
+            pill.classList.remove('hidden');
+            pill.textContent = `⟳ ${count} не отправлено`;
+        }
+    }
+    async function drainPendingOps() {
+        const ops = loadPendingOps();
+        if (ops.length === 0) return;
+        const remaining = [];
+        let succeeded = 0;
+        for (const op of ops) {
+            try {
+                const { error } = await sb.rpc(op.rpc, op.args);
+                if (error) {
+                    // Drop silently if session ended before we reconnected
+                    if (!error.message?.includes('No active session')) remaining.push(op);
+                } else {
+                    succeeded++;
+                }
+            } catch (e) {
+                remaining.push(op);
+            }
+        }
+        savePendingOps(remaining);
+        updatePendingIndicator();
+        if (succeeded > 0) {
+            showToast(`Отправлено: ${succeeded}`);
+            loadQueue();
+        }
+    }
+    window.addEventListener('online', drainPendingOps);
 
     // --- Session gate (waiting overlay + warning banner) ---
     const WARNING_MS = 15 * 60 * 1000;
@@ -904,10 +1030,17 @@
 
     async function searchSongs(query) {
         const q = query.replace(/[%_\\]/g, '\\$&');
-        const { data: songs } = await sb.from('karaoke_songs')
-            .select('id, title, artist')
-            .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
-            .limit(10);
+        let songs = null;
+        if (navigator.onLine) {
+            try {
+                const { data } = await sb.from('karaoke_songs')
+                    .select('id, title, artist')
+                    .or(`title.ilike.%${q}%,artist.ilike.%${q}%`)
+                    .limit(10);
+                songs = data;
+            } catch (e) { /* network failure — fall through to cache */ }
+        }
+        if (!songs) songs = searchCached(query);
 
         if (!songs || songs.length === 0) {
             searchResults.innerHTML = `
@@ -974,26 +1107,33 @@
 
     async function submitSong(songId, name, mode) {
         const rpc = mode === 'now' ? 'karaoke_queue_play_next' : 'karaoke_queue_add';
-        const { error } = await sb.rpc(rpc, {
-            p_room_id: ROOM_ID,
-            p_song_id: songId,
-            p_user_name: name || null
-        });
+        const args = { p_room_id: ROOM_ID, p_song_id: songId, p_user_name: name || null };
+        const title = window._pendingSongTitle || 'Песня';
 
-        if (error) {
-            showToast(error.message.includes('No active session')
-                ? 'Бронь не активна'
-                : 'Ошибка: ' + error.message);
-            return;
+        let err = null;
+        if (navigator.onLine) {
+            try {
+                const { error } = await sb.rpc(rpc, args);
+                err = error;
+            } catch (e) { err = e; }
+        } else {
+            err = { offline: true };
         }
 
-        // Clear search
+        if (err) {
+            if (err.message?.includes('No active session')) {
+                showToast('Бронь не активна');
+                return;
+            }
+            enqueuePendingOp({ rpc, args, title });
+            showToast(`${title} — отправим при возврате связи`);
+        } else {
+            showToast(mode === 'now' ? `${title} — поёте следующей!` : `${title} добавлена в очередь`);
+        }
+
         searchInput.value = '';
         searchResults.innerHTML = '';
         catalogSection.style.display = '';
-
-        const title = window._pendingSongTitle || 'Песня';
-        showToast(mode === 'now' ? `${title} — поёте следующей!` : `${title} добавлена в очередь`);
         loadQueue();
     }
 
@@ -1153,9 +1293,19 @@
 
     // --- Catalog ---
     async function loadCatalog() {
-        const { data: songs } = await sb.from('karaoke_songs')
-            .select('id, title, artist')
-            .order('artist', { ascending: true });
+        let songs = null;
+        if (navigator.onLine) {
+            try {
+                const { data } = await sb.from('karaoke_songs')
+                    .select('id, title, artist')
+                    .order('artist', { ascending: true });
+                if (data) {
+                    songs = data;
+                    saveCatalogCache(data);
+                }
+            } catch (e) { /* fall through to cache */ }
+        }
+        if (!songs) songs = loadCatalogCache();
 
         const container = document.getElementById('catalog');
         if (!songs || songs.length === 0) {
@@ -1169,6 +1319,8 @@
     // Init
     loadCatalog();
     loadQueue();
+    updatePendingIndicator();
+    drainPendingOps();
     </script>
 </body>
 </html>

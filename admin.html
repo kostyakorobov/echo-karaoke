@@ -809,6 +809,14 @@
 
     <div class="toast" id="toast"></div>
 
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch((e) =>
+                console.warn('SW register failed:', e)
+            );
+        }
+    </script>
+
     <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 

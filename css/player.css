@@ -236,6 +236,24 @@ body {
     50% { transform: scale(1.5); opacity: 0.4; }
 }
 
+/* --- Offline indicator --- */
+.offline-indicator {
+    position: fixed;
+    bottom: 16px;
+    left: 16px;
+    z-index: 80;
+    padding: 8px 14px;
+    border-radius: 20px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+    font-size: 13px;
+    font-weight: 600;
+    pointer-events: none;
+    backdrop-filter: blur(6px);
+}
+.offline-indicator.hidden { display: none; }
+
 /* --- Awaiting age-gate answer (shown between splash and video) --- */
 .awaiting-answer-overlay {
     position: fixed; inset: 0; background: #0a0a0a; z-index: 150;

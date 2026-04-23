@@ -187,6 +187,24 @@
 
     <audio id="audio" preload="auto"></audio>
 
+    <!-- 0e. Offline indicator pill (bottom-left, visible only when offline) -->
+    <div class="offline-indicator hidden" id="offlineIndicator">⚠ Нет связи</div>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch((e) =>
+                console.warn('SW register failed:', e)
+            );
+        }
+        (function wireOfflineIndicator() {
+            const pill = document.getElementById('offlineIndicator');
+            const update = () => pill.classList.toggle('hidden', navigator.onLine);
+            window.addEventListener('online', update);
+            window.addEventListener('offline', update);
+            update();
+        })();
+    </script>
+
     <script type="module" src="js/app.js"></script>
 </body>
 </html>
