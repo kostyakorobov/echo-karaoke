@@ -101,6 +101,54 @@
             color: #525252;
             margin-left: 8px;
         }
+        .room-timer {
+            font-size: 13px;
+            font-weight: 600;
+            color: #22c55e;
+            font-variant-numeric: tabular-nums;
+            margin-left: 8px;
+            padding: 2px 8px;
+            border-radius: 8px;
+            background: rgba(34, 197, 94, 0.1);
+        }
+        .room-timer.warning {
+            color: #f59e0b;
+            background: rgba(245, 158, 11, 0.12);
+            animation: pulse-dot 2s infinite;
+        }
+        .session-actions {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .btn-session {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #262626;
+            background: #141414;
+            color: #a3a3a3;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-session:hover {
+            border-color: #a855f7;
+            color: #a855f7;
+        }
+        .btn-session.primary {
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            color: #fff;
+            border-color: transparent;
+            font-size: 14px;
+            padding: 10px;
+        }
+        .btn-session.primary:hover { opacity: 0.9; }
+        .btn-session.danger:hover {
+            border-color: #ef4444;
+            color: #ef4444;
+        }
 
         /* Room card */
         .room-card {
@@ -658,6 +706,7 @@
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
     let allSongs = [];
     let rooms = [];
+    let activeSessions = {}; // room_id -> session row
 
     // --- Auth gate ---
     const ADMIN_EMAIL = 'admin@echo-karaoke.local';
@@ -734,7 +783,7 @@
         return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
     }
 
-    // --- Rooms ---
+    // --- Rooms & sessions ---
     async function fetchRooms() {
         const { data, error } = await sb.from('rooms')
             .select('id, name, active, congrats_text, created_at')
@@ -746,8 +795,39 @@
         return data || [];
     }
 
+    async function fetchActiveSessions() {
+        const { data } = await sb.from('sessions')
+            .select('id, room_id, started_at, ends_at, status')
+            .eq('status', 'active');
+        const map = {};
+        for (const s of (data || [])) map[s.room_id] = s;
+        return map;
+    }
+
+    function fmtDuration(ms) {
+        if (ms <= 0) return '00:00';
+        const totalSec = Math.floor(ms / 1000);
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+        return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    }
+
+    function tickTimers() {
+        const now = Date.now();
+        document.querySelectorAll('[data-ends-at]').forEach(el => {
+            const ends = new Date(el.dataset.endsAt).getTime();
+            const remaining = ends - now;
+            el.textContent = '⏱ ' + fmtDuration(remaining);
+            if (remaining < 15 * 60 * 1000) el.classList.add('warning');
+            else el.classList.remove('warning');
+        });
+    }
+    setInterval(tickTimers, 1000);
+
     async function loadRooms() {
-        rooms = await fetchRooms();
+        [rooms, activeSessions] = await Promise.all([fetchRooms(), fetchActiveSessions()]);
         const container = document.getElementById('rooms');
         let totalQueue = 0;
         let totalPlaying = 0;
@@ -774,6 +854,32 @@
                 continue;
             }
 
+            const session = activeSessions[roomId];
+
+            // No active session: minimal card with start button
+            if (!session) {
+                html += `
+                    <div class="room-card">
+                        <div class="room-header">
+                            <div class="room-name">${esc(room.name)}
+                                <span class="room-name-edit">${esc(roomId)}</span>
+                            </div>
+                            <div class="room-queue-actions">
+                                <div class="room-status idle">Ожидание</div>
+                                <button class="btn-sm" onclick="window._renameRoom('${escAttr(roomId)}')" title="Переименовать">✏️</button>
+                                <button class="btn-sm" onclick="window._editCongrats('${escAttr(roomId)}')" title="Текст поздравления">✍️</button>
+                                <button class="btn-sm danger" onclick="window._toggleRoom('${escAttr(roomId)}', false)" title="Отключить">⏸</button>
+                            </div>
+                        </div>
+                        <div class="session-actions">
+                            <button class="btn-session primary" onclick="window._startSession('${escAttr(roomId)}')">▶ Начать бронь</button>
+                        </div>
+                    </div>
+                `;
+                continue;
+            }
+
+            // Active session: fetch queue, render full UI with timer + extend/end
             const { data: queue } = await sb.from('karaoke_queue')
                 .select('*, karaoke_songs(title, artist)')
                 .eq('room_id', roomId)
@@ -792,6 +898,7 @@
                     <div class="room-header">
                         <div class="room-name">${esc(room.name)}
                             <span class="room-name-edit">${esc(roomId)}</span>
+                            <span class="room-timer" data-ends-at="${esc(session.ends_at)}">⏱ --:--</span>
                         </div>
                         <div class="room-queue-actions">
                             <div class="room-status ${playing ? 'playing' : 'idle'}">
@@ -801,6 +908,10 @@
                             <button class="btn-sm" onclick="window._editCongrats('${escAttr(roomId)}')" title="Текст поздравления">✍️</button>
                             <button class="btn-sm danger" onclick="window._toggleRoom('${escAttr(roomId)}', false)" title="Отключить">⏸</button>
                         </div>
+                    </div>
+                    <div class="session-actions">
+                        <button class="btn-session" onclick="window._extendSession('${escAttr(session.id)}')">+60 мин</button>
+                        <button class="btn-session danger" onclick="window._endSession('${escAttr(session.id)}')">⏹ Завершить</button>
                     </div>
                     ${playing ? `
                         <div class="room-now">
@@ -835,6 +946,7 @@
         container.innerHTML = html || '<div class="empty">Нет залов. Добавьте первый зал.</div>';
         document.getElementById('totalQueue').textContent = totalQueue;
         document.getElementById('totalPlaying').textContent = totalPlaying;
+        tickTimers();
     }
 
     // --- Room CRUD ---
@@ -869,6 +981,47 @@
         const { error } = await sb.from('rooms').update({ active: makeActive }).eq('id', roomId);
         if (error) { showToast('Ошибка: ' + error.message); return; }
         showToast(makeActive ? 'Зал включён' : 'Зал отключён');
+        loadRooms();
+    };
+
+    // --- Sessions (bookings) ---
+    window._startSession = async function(roomId) {
+        const raw = prompt(
+            'Длительность брони в минутах (минимум 120):',
+            '120'
+        );
+        if (raw === null) return;
+        const mins = parseInt(raw.trim(), 10);
+        if (!Number.isFinite(mins) || mins < 120) {
+            showToast('Минимум 120 минут');
+            return;
+        }
+        const { data, error } = await sb.rpc('session_start', {
+            p_room_id: roomId,
+            p_duration_min: mins
+        });
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast(`Бронь запущена: ${mins} мин`);
+        loadRooms();
+    };
+
+    window._extendSession = async function(sessionId) {
+        const { error } = await sb.rpc('session_extend', {
+            p_session_id: sessionId,
+            p_extra_min: 60
+        });
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast('Бронь продлена на +60 мин');
+        loadRooms();
+    };
+
+    window._endSession = async function(sessionId) {
+        if (!confirm('Завершить бронь сейчас? Очередь будет сброшена.')) return;
+        const { error } = await sb.rpc('session_end', {
+            p_session_id: sessionId
+        });
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast('Бронь завершена');
         loadRooms();
     };
 
@@ -1021,6 +1174,14 @@
             event: '*',
             schema: 'public',
             table: 'rooms'
+        }, () => { loadRooms(); })
+        .subscribe();
+
+    sb.channel('admin_sessions')
+        .on('postgres_changes', {
+            event: '*',
+            schema: 'public',
+            table: 'sessions'
         }, () => { loadRooms(); })
         .subscribe();
 
