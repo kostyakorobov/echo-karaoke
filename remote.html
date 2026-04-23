@@ -479,9 +479,91 @@
             color: #525252;
         }
         .empty-icon { font-size: 48px; margin-bottom: 12px; }
+
+        /* Waiting gate — blocks the remote until admin starts a booking */
+        .waiting-overlay {
+            position: fixed;
+            inset: 0;
+            background: #0a0a0a;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            text-align: center;
+        }
+        .waiting-overlay.hidden { display: none; }
+        .waiting-overlay-logo {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 2px;
+        }
+        .waiting-overlay-sub {
+            font-size: 13px;
+            color: #737373;
+            margin-top: 8px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+        .waiting-overlay-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #a855f7; margin-top: 40px;
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.6);
+            animation: waiting-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes waiting-pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.5); opacity: 0.4; }
+        }
+        .waiting-overlay-text {
+            margin-top: 22px;
+            font-size: 17px;
+            color: #d4d4d4;
+            line-height: 1.5;
+        }
+        .waiting-overlay-subtext {
+            margin-top: 8px;
+            font-size: 13px;
+            color: #737373;
+        }
+
+        /* Warning banner (last 15 min of session) */
+        .session-warning-banner {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 10px 16px;
+            background: rgba(245, 158, 11, 0.96);
+            color: #0a0a0a;
+            font-size: 13px;
+            font-weight: 700;
+            text-align: center;
+            z-index: 900;
+            box-shadow: 0 2px 12px rgba(245, 158, 11, 0.4);
+        }
+        .session-warning-banner.hidden { display: none; }
     </style>
 </head>
 <body>
+    <!-- Waiting gate: visible when no active session -->
+    <div class="waiting-overlay" id="waitingOverlay">
+        <div class="waiting-overlay-logo">ЭХО</div>
+        <div class="waiting-overlay-sub">караоке</div>
+        <div class="waiting-overlay-dot"></div>
+        <div class="waiting-overlay-text">Ожидание запуска</div>
+        <div class="waiting-overlay-subtext">Администратор скоро активирует комнату</div>
+    </div>
+
+    <!-- Session ending warning banner -->
+    <div class="session-warning-banner hidden" id="sessionWarningBanner">
+        <span id="sessionWarningText">Бронь заканчивается скоро</span>
+    </div>
+
     <div class="header">
         <div class="logo">ЭХО.КАРАОКЕ</div>
         <div class="header-right">
@@ -588,6 +670,64 @@
     const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
     let pendingSongId = null;
     let isPlaying = false;
+
+    // --- Session gate (waiting overlay + warning banner) ---
+    const WARNING_MS = 15 * 60 * 1000;
+    let sessionEndsAt = null;
+
+    async function refreshSessionState() {
+        const { data } = await sb.from('sessions')
+            .select('id, ends_at')
+            .eq('room_id', ROOM_ID)
+            .eq('status', 'active')
+            .maybeSingle();
+        applySessionState(data);
+    }
+
+    function applySessionState(session) {
+        const overlay = document.getElementById('waitingOverlay');
+        const banner = document.getElementById('sessionWarningBanner');
+        if (!session) {
+            overlay.classList.remove('hidden');
+            banner.classList.add('hidden');
+            document.getElementById('modal').classList.remove('visible');
+            document.getElementById('confirmModal').classList.remove('visible');
+            sessionEndsAt = null;
+            return;
+        }
+        sessionEndsAt = new Date(session.ends_at).getTime();
+        overlay.classList.add('hidden');
+        tickSessionTimer();
+    }
+
+    function tickSessionTimer() {
+        if (sessionEndsAt === null) return;
+        const remaining = sessionEndsAt - Date.now();
+        const banner = document.getElementById('sessionWarningBanner');
+        const bannerText = document.getElementById('sessionWarningText');
+        if (remaining <= 0) {
+            banner.classList.remove('hidden');
+            bannerText.textContent = 'Время брони истекло. Продлите у администратора.';
+            return;
+        }
+        if (remaining < WARNING_MS) {
+            const mins = Math.max(1, Math.ceil(remaining / 60000));
+            banner.classList.remove('hidden');
+            bannerText.textContent = `Бронь заканчивается через ${mins} мин. Продлите у администратора.`;
+        } else {
+            banner.classList.add('hidden');
+        }
+    }
+    setInterval(tickSessionTimer, 1000);
+
+    refreshSessionState();
+
+    sb.channel(`session_${ROOM_ID}`)
+        .on('postgres_changes', {
+            event: '*', schema: 'public',
+            table: 'sessions', filter: `room_id=eq.${ROOM_ID}`
+        }, () => refreshSessionState())
+        .subscribe();
 
     // --- Realtime broadcast channel for player commands ---
     const cmdChannel = sb.channel(`room_commands_${ROOM_ID}`);
@@ -735,11 +875,18 @@
     });
 
     async function addToQueue(songId, name) {
-        await sb.rpc('karaoke_queue_add', {
+        const { error } = await sb.rpc('karaoke_queue_add', {
             p_room_id: ROOM_ID,
             p_song_id: songId,
             p_user_name: name || null
         });
+
+        if (error) {
+            showToast(error.message.includes('No active session')
+                ? 'Бронь не активна'
+                : 'Ошибка: ' + error.message);
+            return;
+        }
 
         // Clear search
         searchInput.value = '';

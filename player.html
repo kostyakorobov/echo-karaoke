@@ -14,6 +14,25 @@
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 </head>
 <body>
+    <!-- 0a. Waiting gate: blocks everything until admin starts a booking -->
+    <div class="waiting-overlay" id="waitingOverlay">
+        <h1>ЭХО</h1>
+        <div class="waiting-sub">караоке</div>
+        <div class="waiting-dot"></div>
+        <div class="waiting-text">
+            Ожидание запуска<br>
+            <span class="waiting-subtext">Администратор скоро активирует комнату</span>
+        </div>
+    </div>
+
+    <!-- 0b. Session timer chip (visible during active session) -->
+    <div class="session-timer hidden" id="sessionTimer">⏱ --:--</div>
+
+    <!-- 0c. Warning banner (visible in the last 15 min) -->
+    <div class="session-warning-banner hidden" id="sessionWarningBanner">
+        <span id="sessionWarningText">Бронь заканчивается скоро. Продлите у администратора.</span>
+    </div>
+
     <!-- 1. Splash: tap to unlock autoplay and start -->
     <div class="splash" id="splash">
         <h1>ЭХО</h1>

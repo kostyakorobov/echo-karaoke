@@ -50,6 +50,84 @@ sb.channel(`room_config_${ROOM_ID}`)
     }, () => applyRoomConfig())
     .subscribe();
 
+// --- Session gate (waiting overlay + countdown + warning) ---
+const WARNING_MS = 15 * 60 * 1000;
+let sessionEndsAt = null;
+
+async function refreshSessionState() {
+    const { data } = await sb.from('sessions')
+        .select('id, ends_at')
+        .eq('room_id', ROOM_ID)
+        .eq('status', 'active')
+        .maybeSingle();
+    applySessionState(data);
+}
+
+function applySessionState(session) {
+    const overlay = document.getElementById('waitingOverlay');
+    const timer = document.getElementById('sessionTimer');
+    const banner = document.getElementById('sessionWarningBanner');
+
+    if (!session) {
+        // No active session → block everything behind the waiting overlay
+        overlay.classList.remove('hidden');
+        timer.classList.add('hidden');
+        banner.classList.add('hidden');
+        if (!audio.paused) audio.pause();
+        sessionEndsAt = null;
+        return;
+    }
+
+    sessionEndsAt = new Date(session.ends_at).getTime();
+    overlay.classList.add('hidden');
+    timer.classList.remove('hidden');
+    tickSessionTimer();
+}
+
+function tickSessionTimer() {
+    if (sessionEndsAt === null) return;
+    const remaining = sessionEndsAt - Date.now();
+    const timer = document.getElementById('sessionTimer');
+    const banner = document.getElementById('sessionWarningBanner');
+    const bannerText = document.getElementById('sessionWarningText');
+
+    if (remaining <= 0) {
+        timer.textContent = '⏱ 00:00';
+        timer.classList.add('warning');
+        banner.classList.remove('hidden');
+        bannerText.textContent = 'Время брони истекло. Продлите у администратора.';
+        return;
+    }
+
+    const totalSec = Math.floor(remaining / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    timer.textContent = '⏱ ' + (h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`);
+
+    const warn = remaining < WARNING_MS;
+    timer.classList.toggle('warning', warn);
+    if (warn) {
+        banner.classList.remove('hidden');
+        const mins = Math.max(1, Math.ceil(remaining / 60000));
+        bannerText.textContent =
+            `Бронь заканчивается через ${mins} мин. Продлите у администратора.`;
+    } else {
+        banner.classList.add('hidden');
+    }
+}
+setInterval(tickSessionTimer, 1000);
+
+refreshSessionState();
+
+sb.channel(`session_${ROOM_ID}`)
+    .on('postgres_changes', {
+        event: '*', schema: 'public',
+        table: 'sessions', filter: `room_id=eq.${ROOM_ID}`
+    }, () => refreshSessionState())
+    .subscribe();
+
 // --- Toast ---
 function showPlayerToast(title, detail, type = '') {
     document.getElementById('toastSong').textContent = title;

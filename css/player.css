@@ -200,6 +200,73 @@ body {
 }
 .btn-play:hover { background: #d4d4d4; }
 
+/* --- Waiting gate (blocks app until admin starts a booking) --- */
+.waiting-overlay {
+    position: fixed; inset: 0; background: #0a0a0a; z-index: 200;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: opacity 0.4s ease;
+}
+.waiting-overlay.hidden { display: none; }
+.waiting-overlay h1 {
+    font-family: 'General Sans', sans-serif;
+    font-size: 96px; font-weight: 800;
+    background: linear-gradient(135deg, #a855f7, #ec4899);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.waiting-sub {
+    font-size: 18px; color: #737373; margin-top: 16px;
+    letter-spacing: 4px; text-transform: uppercase;
+}
+.waiting-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #a855f7; margin-top: 48px;
+    box-shadow: 0 0 24px rgba(168, 85, 247, 0.6);
+    animation: waiting-pulse 1.4s ease-in-out infinite;
+}
+.waiting-text {
+    margin-top: 28px; text-align: center;
+    font-size: 22px; color: #d4d4d4; line-height: 1.5;
+}
+.waiting-subtext {
+    font-size: 15px; color: #737373;
+}
+@keyframes waiting-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.5); opacity: 0.4; }
+}
+
+/* --- Session timer chip --- */
+.session-timer {
+    position: fixed; top: 18px; right: 24px; z-index: 90;
+    padding: 8px 16px; border-radius: 20px;
+    background: rgba(34, 197, 94, 0.12);
+    color: #22c55e; font-size: 15px; font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5px;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(34, 197, 94, 0.25);
+    pointer-events: none;
+}
+.session-timer.hidden { display: none; }
+.session-timer.warning {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.35);
+    animation: waiting-pulse 2s ease-in-out infinite;
+}
+
+/* --- Session warning banner (last 15 min) --- */
+.session-warning-banner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 95;
+    padding: 14px 24px; text-align: center;
+    background: rgba(245, 158, 11, 0.96);
+    color: #0a0a0a; font-size: 17px; font-weight: 700;
+    box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+    letter-spacing: 0.3px;
+}
+.session-warning-banner.hidden { display: none; }
+
 /* --- Splash screen --- */
 .splash {
     position: fixed; inset: 0; background: #0a0a0a; z-index: 100;
