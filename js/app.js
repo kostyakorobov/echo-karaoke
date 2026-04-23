@@ -29,6 +29,27 @@ window.addEventListener('unhandledrejection', (e) => {
     lastError = `Unhandled rejection: ${e.reason?.message || e.reason}`;
 });
 
+// --- Room config (congrats_text, etc.) ---
+const CONGRATS_DEFAULT = 'Отличное выступление!';
+
+async function applyRoomConfig() {
+    const { data } = await sb.from('rooms')
+        .select('congrats_text')
+        .eq('id', ROOM_ID)
+        .maybeSingle();
+    const el = document.getElementById('congratsLabel');
+    if (el) el.textContent = (data?.congrats_text || CONGRATS_DEFAULT);
+}
+
+applyRoomConfig();
+
+sb.channel(`room_config_${ROOM_ID}`)
+    .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public',
+        table: 'rooms', filter: `id=eq.${ROOM_ID}`
+    }, () => applyRoomConfig())
+    .subscribe();
+
 // --- Toast ---
 function showPlayerToast(title, detail, type = '') {
     document.getElementById('toastSong').textContent = title;

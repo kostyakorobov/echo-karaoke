@@ -737,7 +737,7 @@
     // --- Rooms ---
     async function fetchRooms() {
         const { data, error } = await sb.from('rooms')
-            .select('id, name, active, created_at')
+            .select('id, name, active, congrats_text, created_at')
             .order('created_at', { ascending: true });
         if (error) {
             console.error('Failed to load rooms:', error);
@@ -798,6 +798,7 @@
                                 ${playing ? 'Играет' : 'Свободен'}
                             </div>
                             <button class="btn-sm" onclick="window._renameRoom('${escAttr(roomId)}')" title="Переименовать">✏️</button>
+                            <button class="btn-sm" onclick="window._editCongrats('${escAttr(roomId)}')" title="Текст поздравления">✍️</button>
                             <button class="btn-sm danger" onclick="window._toggleRoom('${escAttr(roomId)}', false)" title="Отключить">⏸</button>
                         </div>
                     </div>
@@ -844,6 +845,21 @@
         const { error } = await sb.from('rooms').update({ name: newName.trim() }).eq('id', roomId);
         if (error) { showToast('Ошибка: ' + error.message); return; }
         showToast('Зал переименован');
+        loadRooms();
+    };
+
+    window._editCongrats = async function(roomId) {
+        const current = rooms.find(r => r.id === roomId);
+        const defaultText = 'Отличное выступление!';
+        const newText = prompt(
+            'Текст поздравления в конце песни (пусто = дефолт):',
+            current?.congrats_text ?? ''
+        );
+        if (newText === null) return;
+        const value = newText.trim() || null;
+        const { error } = await sb.from('rooms').update({ congrats_text: value }).eq('id', roomId);
+        if (error) { showToast('Ошибка: ' + error.message); return; }
+        showToast(value ? 'Текст обновлён' : `Сброшено на "${defaultText}"`);
         loadRooms();
     };
 
