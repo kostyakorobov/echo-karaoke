@@ -638,6 +638,117 @@
             backdrop-filter: blur(6px);
         }
         .pending-sync-indicator.hidden { display: none; }
+
+        /* Song request section */
+        .request-section {
+            margin-top: 24px;
+            padding: 16px;
+            background: linear-gradient(135deg, rgba(168, 85, 247, 0.08), rgba(236, 72, 153, 0.04));
+            border: 1px solid rgba(168, 85, 247, 0.2);
+            border-radius: 14px;
+        }
+        .request-title {
+            font-size: 14px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            color: #e5e5e5;
+        }
+        .request-sub {
+            font-size: 12px;
+            color: #a3a3a3;
+            margin-bottom: 12px;
+            line-height: 1.4;
+        }
+        .request-form {
+            display: flex;
+            gap: 8px;
+        }
+        .request-input {
+            flex: 1;
+            padding: 11px 14px;
+            border-radius: 10px;
+            border: 1px solid #262626;
+            background: #0a0a0a;
+            color: #fff;
+            font-size: 15px;
+            outline: none;
+        }
+        .request-input:focus { border-color: #a855f7; }
+        .request-submit {
+            padding: 11px 18px;
+            border-radius: 10px;
+            border: none;
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: opacity 0.15s, transform 0.15s;
+        }
+        .request-submit:active { transform: scale(0.96); }
+        .request-submit:disabled { opacity: 0.5; cursor: default; }
+
+        .request-list { margin-top: 12px; }
+        .request-list:empty { display: none; }
+        .request-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 12px;
+            background: #0a0a0a;
+            border: 1px solid #1a1a1a;
+            border-radius: 10px;
+            margin-bottom: 6px;
+            gap: 10px;
+        }
+        .request-item-text {
+            flex: 1;
+            min-width: 0;
+            font-size: 13px;
+            color: #d4d4d4;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .request-status {
+            font-size: 11px;
+            padding: 4px 9px;
+            border-radius: 8px;
+            font-weight: 600;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .request-status.pending {
+            background: rgba(163, 163, 163, 0.15);
+            color: #a3a3a3;
+        }
+        .request-status.processing {
+            background: rgba(168, 85, 247, 0.15);
+            color: #c084fc;
+            animation: req-pulse 1.6s ease-in-out infinite;
+        }
+        @keyframes req-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.55; }
+        }
+        .request-status.completed {
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+        }
+        .request-status.failed {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+        }
+        .request-failed-hint {
+            margin-top: 6px;
+            padding: 8px 10px;
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 8px;
+            font-size: 12px;
+            color: #fca5a5;
+            line-height: 1.4;
+        }
     </style>
 </head>
 <body>
@@ -734,6 +845,18 @@
                 <div class="empty-icon">🎤</div>
                 Очередь пуста — найди песню!
             </div>
+        </div>
+
+        <!-- Request a song -->
+        <div class="request-section">
+            <div class="request-title">Не нашли свою песню?</div>
+            <div class="request-sub">Напиши исполнителя и название — добавим её в каталог за пару минут.</div>
+            <div class="request-form">
+                <input class="request-input" id="requestInput" type="text"
+                       placeholder="Например: Кино — Группа крови" maxlength="200" autocomplete="off">
+                <button class="request-submit" id="requestSubmit">Заказать</button>
+            </div>
+            <div class="request-list" id="requestList"></div>
         </div>
     </div>
 
@@ -869,6 +992,7 @@
     // --- Session gate (waiting overlay + warning banner) ---
     const WARNING_MS = 15 * 60 * 1000;
     let sessionEndsAt = null;
+    let currentSessionId = null;
 
     async function refreshSessionState() {
         const { data } = await sb.from('sessions')
@@ -890,6 +1014,9 @@
             document.getElementById('modal').classList.remove('visible');
             document.getElementById('confirmModal').classList.remove('visible');
             sessionEndsAt = null;
+            const prevSession = currentSessionId;
+            currentSessionId = null;
+            if (prevSession) onSessionChanged();
             return;
         }
         sessionEndsAt = new Date(session.ends_at).getTime();
@@ -898,6 +1025,10 @@
             ageGate.classList.remove('hidden');
         } else {
             ageGate.classList.add('hidden');
+        }
+        if (currentSessionId !== session.id) {
+            currentSessionId = session.id;
+            onSessionChanged();
         }
         tickSessionTimer();
     }
@@ -1315,6 +1446,121 @@
 
         container.innerHTML = songs.map(s => songCardHTML(s)).join('');
     }
+
+    // --- Song requests (Phase 5) ---
+    let myRequests = [];
+    let requestsChannel = null;
+    const seenStatusByRequestId = new Map();
+
+    function onSessionChanged() {
+        if (requestsChannel) {
+            try { sb.removeChannel(requestsChannel); } catch (e) {}
+            requestsChannel = null;
+        }
+        seenStatusByRequestId.clear();
+        if (!currentSessionId) {
+            myRequests = [];
+            renderRequests();
+            return;
+        }
+        loadMyRequests();
+        requestsChannel = sb.channel(`song_requests_${currentSessionId}`)
+            .on('postgres_changes', {
+                event: '*', schema: 'public',
+                table: 'song_requests',
+                filter: `session_id=eq.${currentSessionId}`
+            }, () => loadMyRequests())
+            .subscribe();
+    }
+
+    async function loadMyRequests() {
+        if (!currentSessionId) return;
+        const { data } = await sb.from('song_requests')
+            .select('id, title_query, status, error_msg, song_id, created_at')
+            .eq('session_id', currentSessionId)
+            .order('created_at', { ascending: false })
+            .limit(20);
+        myRequests = data || [];
+        // Toast on status transitions
+        for (const r of myRequests) {
+            const prev = seenStatusByRequestId.get(r.id);
+            if (prev && prev !== r.status) {
+                if (r.status === 'completed') {
+                    showToast(`✓ ${r.title_query} — добавлено в очередь`);
+                } else if (r.status === 'failed') {
+                    showToast(`Не нашли: ${r.title_query}`);
+                }
+            }
+            seenStatusByRequestId.set(r.id, r.status);
+        }
+        renderRequests();
+    }
+
+    function statusLabel(status) {
+        switch (status) {
+            case 'pending': return 'В очереди';
+            case 'processing': return 'Обрабатываем…';
+            case 'completed': return '✓ Готово';
+            case 'failed': return '✗ Не нашли';
+            default: return status;
+        }
+    }
+
+    function renderRequests() {
+        const list = document.getElementById('requestList');
+        if (!myRequests.length) { list.innerHTML = ''; return; }
+        list.innerHTML = myRequests.map(r => {
+            const failedHint = r.status === 'failed'
+                ? `<div class="request-failed-hint">${esc(r.error_msg || 'Не нашли в каталоге.')} Позови администратора — он добавит вручную.</div>`
+                : '';
+            return `
+                <div>
+                    <div class="request-item">
+                        <div class="request-item-text">${esc(r.title_query)}</div>
+                        <div class="request-status ${r.status}">${statusLabel(r.status)}</div>
+                    </div>
+                    ${failedHint}
+                </div>`;
+        }).join('');
+    }
+
+    async function submitRequest() {
+        const input = document.getElementById('requestInput');
+        const btn = document.getElementById('requestSubmit');
+        const query = input.value.trim();
+        if (query.length < 2) {
+            showToast('Минимум 2 символа');
+            return;
+        }
+        if (!currentSessionId) {
+            showToast('Бронь не активна');
+            return;
+        }
+        btn.disabled = true;
+        try {
+            const { error } = await sb.rpc('karaoke_request_song', {
+                p_room_id: ROOM_ID,
+                p_title_query: query,
+                p_user_name: userName || null,
+            });
+            if (error) {
+                showToast(error.message?.replace(/^.*?:\s*/, '') || 'Ошибка');
+                return;
+            }
+            input.value = '';
+            showToast('Заявка отправлена');
+            loadMyRequests();
+        } catch (e) {
+            showToast('Сеть недоступна');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    document.getElementById('requestSubmit').onclick = submitRequest;
+    document.getElementById('requestInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') submitRequest();
+    });
 
     // Init
     loadCatalog();

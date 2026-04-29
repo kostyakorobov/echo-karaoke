@@ -499,6 +499,106 @@
         .tab-content { display: none; }
         .tab-content.active { display: grid; }
         .tab-content-monitor.active { display: block; }
+        .tab-content-requests.active { display: block; }
+        .tab-badge {
+            display: inline-block;
+            margin-left: 6px;
+            padding: 1px 7px;
+            border-radius: 10px;
+            background: #ef4444;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 16px;
+            vertical-align: middle;
+        }
+        .tab-badge.hidden { display: none; }
+
+        /* Requests tab */
+        .requests-wrap {
+            padding: 24px 32px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        @media (max-width: 1100px) {
+            .requests-wrap { grid-template-columns: 1fr; }
+        }
+        .requests-panel {
+            background: #141414;
+            border: 1px solid #1a1a1a;
+            border-radius: 12px;
+            padding: 18px;
+        }
+        .requests-panel.alert {
+            border-color: rgba(239, 68, 68, 0.4);
+            background: linear-gradient(180deg, rgba(239, 68, 68, 0.05), #141414);
+        }
+        .requests-panel-title {
+            font-weight: 700;
+            font-size: 15px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .requests-panel-title .count {
+            font-size: 12px;
+            font-weight: 600;
+            color: #a3a3a3;
+            padding: 2px 8px;
+            border-radius: 8px;
+            background: #0a0a0a;
+        }
+        .request-row {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 8px 12px;
+            padding: 10px 0;
+            border-top: 1px solid #1a1a1a;
+            align-items: start;
+        }
+        .request-row:first-of-type { border-top: none; }
+        .request-row-main {
+            min-width: 0;
+        }
+        .request-row-query {
+            font-weight: 600;
+            font-size: 14px;
+            color: #e5e5e5;
+            word-break: break-word;
+        }
+        .request-row-meta {
+            font-size: 12px;
+            color: #737373;
+            margin-top: 2px;
+        }
+        .request-row-error {
+            font-size: 12px;
+            color: #fca5a5;
+            margin-top: 4px;
+        }
+        .request-row-status {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 8px;
+            white-space: nowrap;
+        }
+        .request-row-status.pending { background: rgba(163, 163, 163, 0.15); color: #a3a3a3; }
+        .request-row-status.processing {
+            background: rgba(168, 85, 247, 0.15);
+            color: #c084fc;
+            animation: pulse-dot 1.6s infinite;
+        }
+        .request-row-status.completed { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+        .request-row-status.failed { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .requests-empty {
+            color: #525252;
+            font-size: 13px;
+            padding: 16px 0;
+            text-align: center;
+        }
 
         /* Monitoring */
         .monitor-grid {
@@ -726,6 +826,9 @@
     <div class="tabs">
         <button class="tab-btn active" data-tab="main">Управление</button>
         <button class="tab-btn" data-tab="monitor">Мониторинг</button>
+        <button class="tab-btn" data-tab="requests">
+            Заказы<span class="tab-badge hidden" id="requestsBadge">0</span>
+        </button>
     </div>
 
     <div class="layout tab-content active" id="tab-main">
@@ -768,6 +871,38 @@
     <div class="tab-content-monitor tab-content" id="tab-monitor">
         <div class="monitor-grid" id="monitorGrid">
             <div class="device-empty">Нет данных. Устройства появятся после первого heartbeat.</div>
+        </div>
+    </div>
+
+    <!-- Requests tab (Phase 5) -->
+    <div class="tab-content-requests tab-content" id="tab-requests">
+        <div class="requests-wrap">
+            <div class="requests-panel alert" id="failedPanel">
+                <div class="requests-panel-title">
+                    🚨 Не нашли — позови админа
+                    <span class="count" id="failedCount">0</span>
+                </div>
+                <div id="failedList">
+                    <div class="requests-empty">Все заявки обработаны</div>
+                </div>
+            </div>
+            <div class="requests-panel">
+                <div class="requests-panel-title">
+                    ⏳ Активные обработки
+                    <span class="count" id="activeCount">0</span>
+                </div>
+                <div id="activeList">
+                    <div class="requests-empty">Нет активных заявок</div>
+                </div>
+            </div>
+            <div class="requests-panel" style="grid-column: 1 / -1;">
+                <div class="requests-panel-title">
+                    ✓ Готовые (последние)
+                </div>
+                <div id="completedList">
+                    <div class="requests-empty">Готовых заявок пока нет</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1461,8 +1596,108 @@
             btn.classList.add('active');
             document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
             if (btn.dataset.tab === 'monitor') loadMonitor();
+            if (btn.dataset.tab === 'requests') loadRequests();
         };
     });
+
+    // --- Requests panel (Phase 5) ---
+    const FAILED_BADGE_WINDOW_MS = 30 * 60 * 1000;
+    let allRequests = [];
+
+    function timeAgoShort(ts) {
+        const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+        if (diff < 60) return `${diff} с`;
+        if (diff < 3600) return `${Math.floor(diff / 60)} мин`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)} ч`;
+        return `${Math.floor(diff / 86400)} д`;
+    }
+
+    async function loadRequests() {
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { data } = await sb.from('song_requests')
+            .select('id, room_id, title_query, user_name, status, error_msg, song_id, created_at, started_at, finished_at')
+            .or(`status.in.(pending,processing),created_at.gte.${since}`)
+            .order('created_at', { ascending: false })
+            .limit(200);
+        allRequests = data || [];
+        renderRequests();
+    }
+
+    function statusLabelAdmin(s) {
+        return s === 'pending' ? 'Ожидание'
+             : s === 'processing' ? 'Обработка'
+             : s === 'completed' ? 'Готово'
+             : s === 'failed' ? 'Не нашли'
+             : s;
+    }
+
+    function renderRequestRow(r, opts = {}) {
+        const room = roomNameOf(r.room_id);
+        const who = r.user_name ? esc(r.user_name) : 'без имени';
+        const ago = timeAgoShort(r.created_at);
+        const error = (opts.showError && r.error_msg)
+            ? `<div class="request-row-error">${esc(r.error_msg)}</div>` : '';
+        return `
+            <div class="request-row">
+                <div class="request-row-main">
+                    <div class="request-row-query">${esc(r.title_query)}</div>
+                    <div class="request-row-meta">${esc(room)} · ${who} · ${ago} назад</div>
+                    ${error}
+                </div>
+                <div class="request-row-status ${r.status}">${statusLabelAdmin(r.status)}</div>
+            </div>`;
+    }
+
+    function renderRequests() {
+        const now = Date.now();
+        const failed = allRequests.filter(r =>
+            r.status === 'failed'
+            && r.finished_at
+            && (now - new Date(r.finished_at).getTime()) < FAILED_BADGE_WINDOW_MS
+        );
+        const active = allRequests.filter(r => r.status === 'pending' || r.status === 'processing');
+        const completed = allRequests.filter(r => r.status === 'completed').slice(0, 15);
+
+        const failedList = document.getElementById('failedList');
+        failedList.innerHTML = failed.length
+            ? failed.map(r => renderRequestRow(r, { showError: true })).join('')
+            : '<div class="requests-empty">Все заявки обработаны</div>';
+        document.getElementById('failedCount').textContent = failed.length;
+
+        const activeList = document.getElementById('activeList');
+        activeList.innerHTML = active.length
+            ? active.map(r => renderRequestRow(r)).join('')
+            : '<div class="requests-empty">Нет активных заявок</div>';
+        document.getElementById('activeCount').textContent = active.length;
+
+        const completedList = document.getElementById('completedList');
+        completedList.innerHTML = completed.length
+            ? completed.map(r => renderRequestRow(r)).join('')
+            : '<div class="requests-empty">Готовых заявок пока нет</div>';
+
+        // Tab badge: failed in window + active count combined
+        const badge = document.getElementById('requestsBadge');
+        const total = failed.length;
+        if (total > 0) {
+            badge.textContent = total;
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    sb.channel('admin_song_requests')
+        .on('postgres_changes', {
+            event: '*', schema: 'public', table: 'song_requests'
+        }, () => loadRequests())
+        .subscribe();
+
+    // Refresh time labels + age out failed alerts every 30s
+    setInterval(() => {
+        if (allRequests.length) renderRequests();
+    }, 30000);
+
+    loadRequests();
 
     // --- Monitoring ---
     const deviceData = {};

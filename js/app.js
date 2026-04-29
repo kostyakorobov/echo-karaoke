@@ -145,11 +145,16 @@ function showPlayerToast(title, detail, type = '') {
     if (label) {
         if (type === 'error') label.textContent = 'Ошибка';
         else if (type === 'warning') label.textContent = 'Внимание';
+        else if (type === 'request') label.textContent = '🎵 Заказ готов!';
         else label.textContent = 'Добавлено в очередь';
     }
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toast.classList.remove('show'), type === 'error' ? 5000 : 4000);
+    const dur = type === 'error' ? 5000 : type === 'request' ? 6000 : 4000;
+    toastTimer = setTimeout(() => toast.classList.remove('show'), dur);
 }
+
+// Suppress duplicate queue-INSERT toast for songs that just came from a song_request
+const recentlyToastedFromRequest = new Set();
 
 // --- Queue display (karaoke screen header) ---
 async function updateQueueDisplay() {
@@ -356,8 +361,12 @@ queueChannel
         table: 'karaoke_queue', filter: `room_id=eq.${ROOM_ID}`
     }, async (payload) => {
         const row = payload.new;
-        const song = await getSongMeta(row.song_id);
-        if (song) showPlayerToast(song.title, (song.artist ? song.artist + ' — ' : '') + (row.user_name ? `Поёт: ${row.user_name}` : ''));
+        if (recentlyToastedFromRequest.has(row.song_id)) {
+            recentlyToastedFromRequest.delete(row.song_id);
+        } else {
+            const song = await getSongMeta(row.song_id);
+            if (song) showPlayerToast(song.title, (song.artist ? song.artist + ' — ' : '') + (row.user_name ? `Поёт: ${row.user_name}` : ''));
+        }
         updateQueueDisplay();
         refreshBrowseQueue();
         if (!currentSong && !isBrowseVisible()) checkQueue();
@@ -374,6 +383,30 @@ queueChannel
         event: 'DELETE', schema: 'public',
         table: 'karaoke_queue', filter: `room_id=eq.${ROOM_ID}`
     }, () => { updateQueueDisplay(); refreshBrowseQueue(); })
+    .subscribe();
+
+// --- Song requests (Phase 5) — banner when a guest's request just completed ---
+sb.channel(`song_requests_player_${ROOM_ID}`)
+    .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public',
+        table: 'song_requests', filter: `room_id=eq.${ROOM_ID}`
+    }, async (payload) => {
+        const row = payload.new;
+        const oldRow = payload.old;
+        if (row.status !== 'completed' || oldRow?.status === 'completed') return;
+        if (!row.song_id) return;
+        recentlyToastedFromRequest.add(row.song_id);
+        setTimeout(() => recentlyToastedFromRequest.delete(row.song_id), 8000);
+        const song = await getSongMeta(row.song_id);
+        const title = song?.title || row.title_query;
+        const artist = song?.artist || '';
+        const who = row.user_name ? `от ${row.user_name}` : 'готов';
+        showPlayerToast(
+            artist ? `${artist} — ${title}` : title,
+            `Заказ ${who} — добавлено в очередь`,
+            'request'
+        );
+    })
     .subscribe();
 
 // --- Remote commands ---
