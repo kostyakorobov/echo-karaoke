@@ -662,9 +662,11 @@
         .request-form {
             display: flex;
             gap: 8px;
+            flex-wrap: wrap;
         }
         .request-input {
-            flex: 1;
+            flex: 1 1 180px;
+            min-width: 0;
             padding: 11px 14px;
             border-radius: 10px;
             border: 1px solid #262626;
@@ -675,6 +677,7 @@
         }
         .request-input:focus { border-color: #a855f7; }
         .request-submit {
+            flex-shrink: 0;
             padding: 11px 18px;
             border-radius: 10px;
             border: none;
@@ -1321,6 +1324,7 @@
 
     // --- Move in queue ---
     window._moveInQueue = async function(queueId, direction) {
+        const targetId = Number(queueId);
         const { data: items } = await sb.from('karaoke_queue')
             .select('id, position')
             .eq('room_id', ROOM_ID)
@@ -1328,13 +1332,12 @@
             .order('position', { ascending: true });
 
         if (!items) return;
-        const idx = items.findIndex(i => i.id === queueId);
+        const idx = items.findIndex(i => i.id === targetId);
         if (idx < 0) return;
 
         const swapIdx = idx + direction;
         if (swapIdx < 0 || swapIdx >= items.length) return;
 
-        // Swap positions
         const posA = items[idx].position;
         const posB = items[swapIdx].position;
 
